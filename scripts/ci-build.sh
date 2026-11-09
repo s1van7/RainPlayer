@@ -92,6 +92,10 @@ fi
 mkdir -p artifacts
 shopt -s nullglob
 found=0
+# 版本号取自 build.gradle.kts，产物命名为 rainplayer-<版本>-<abi>.apk
+VERSION="$(sed -n 's/.*versionName *= *"\([^"]*\)".*/\1/p' app/build.gradle.kts | head -1)"
+[ -z "$VERSION" ] && VERSION="dev"
+
 for f in app/build/outputs/apk/release/*.apk; do
   base="$(basename "$f" .apk)"
   # app-universal-release -> universal
@@ -101,7 +105,7 @@ for f in app/build/outputs/apk/release/*.apk; do
   case "$short" in
     x86|x86_64) continue ;;
   esac
-  cp "$f" "artifacts/rainplayer-${short}.apk"
+  cp "$f" "artifacts/rainplayer-${VERSION}-${short}.apk"
   found=$((found + 1))
 done
 
@@ -115,5 +119,5 @@ ls -lh artifacts
 
 # 打印实际签名证书，便于确认 CI 产物能否覆盖安装 Release 包
 echo "==> 签名证书"
-keytool -printcert -jarfile artifacts/rainplayer-universal.apk 2>/dev/null \
+keytool -printcert -jarfile "$(ls artifacts/*universal*.apk 2>/dev/null | head -1)" 2>/dev/null \
   | grep -E "^Owner:|^所有者:" | sed 's/^/   /' || echo "   （读取失败，请手动用 apksigner 校验）"
