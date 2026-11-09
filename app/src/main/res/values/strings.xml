@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Rain</string>
+    <string name="app_name_tv">Rain</string>
+    <string name="login_title">连接媒体服务器</string>
+    <string name="login_subtitle">支持 Emby / Jellyfin / 飞牛影视</string>
+    <string name="server_address">服务器地址</string>
+    <string name="username">用户名</string>
+    <string name="password">密码</string>
+    <string name="connect">连接</string>
+    <string name="home">首页</string>
+    <string name="libraries">媒体库</string>
+    <string name="search">搜索</string>
+    <string name="settings">设置</string>
+    <string name="play">播放</string>
+    <string name="resume">继续播放</string>
+    <string name="continue_watching">继续观看</string>
+    <string name="latest">最近添加</string>
+</resources>
