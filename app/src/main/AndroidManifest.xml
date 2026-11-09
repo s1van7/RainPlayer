@@ -16,7 +16,7 @@
         android:required="false" />
 
     <application
-        android:name=".RainApp"
+        android:name=".RainPlayerApp"
         android:allowBackup="true"
         android:banner="@drawable/tv_banner"
         android:icon="@mipmap/ic_launcher"
@@ -24,7 +24,7 @@
         android:largeHeap="true"
         android:roundIcon="@mipmap/ic_launcher"
         android:supportsRtl="true"
-        android:theme="@style/Theme.Rain"
+        android:theme="@style/Theme.RainPlayer"
         android:usesCleartextTraffic="true">
 
         <activity
@@ -32,7 +32,7 @@
             android:configChanges="keyboard|keyboardHidden|orientation|screenSize|screenLayout|smallestScreenSize|uiMode"
             android:exported="true"
             android:label="@string/app_name"
-            android:theme="@style/Theme.Rain"
+            android:theme="@style/Theme.RainPlayer"
             android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -45,7 +45,7 @@
             android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenSize|screenLayout|smallestScreenSize|uiMode"
             android:exported="true"
             android:label="@string/app_name"
-            android:theme="@style/Theme.Rain.Tv">
+            android:theme="@style/Theme.RainPlayer.Tv">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
@@ -57,7 +57,7 @@
             android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenSize|screenLayout|smallestScreenSize|uiMode"
             android:exported="false"
             android:launchMode="singleTask"
-            android:theme="@style/Theme.Rain.Player" />
+            android:theme="@style/Theme.RainPlayer.Player" />
 
         <meta-data
             android:name="android.max_aspect"

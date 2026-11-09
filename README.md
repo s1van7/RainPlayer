@@ -1,6 +1,6 @@
-# Rain
+# RainPlayer
 
-[![Release](https://img.shields.io/badge/release-v1.0.0-blue.svg)](https://github.com/s1van7/Rain/releases)
+[![Release](https://img.shields.io/badge/release-v1.0.0-blue.svg)](https://github.com/s1van7/RainPlayer/releases)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 ![minSdk](https://img.shields.io/badge/minSdk-21-brightgreen.svg)
 ![platform](https://img.shields.io/badge/platform-Android%20%7C%20Android%20TV-3ddc84.svg)
@@ -59,8 +59,8 @@ adb install -r app-release-universal.apk
 ## 3. 架构
 
 ```
-app/src/main/java/com/rain/player/
-├── RainApp.kt                  Application + 极简服务定位器(Graph) + Coil 图片加载
+app/src/main/java/com/rainplayer/
+├── RainPlayerApp.kt                  Application + 极简服务定位器(Graph) + Coil 图片加载
 ├── core/
 │   ├── Prefs.kt                 本地设置（服务器、播放开关、字幕偏好）
 │   ├── Net.kt                   OkHttp 客户端、按 host 注入鉴权头的拦截器
@@ -189,7 +189,7 @@ export ANDROID_HOME=/path/to/android-sdk
 产物可直接安装（不适合上架）。要出正式包，自己生成一份并让 Gradle 读到：
 
 ```bash
-keytool -genkeypair -keystore rain.jks -alias rain \
+keytool -genkeypair -keystore rainplayer.jks -alias rainplayer \
   -keyalg RSA -keysize 2048 -validity 10950
 cp keystore.properties.example keystore.properties
 # 按需修改 keystore.properties 里的路径与口令
@@ -205,7 +205,7 @@ Compose BOM 2024.12.01 / Media3 1.6.1 / Jellyfin FFmpeg 1.6.1+1。
 
 仓库已配置 GitHub Actions（`.github/workflows/android.yml`，模板同步在
 [`docs/ci-android.yml`](docs/ci-android.yml)）：每次 push / PR 构建 release APK
-并上传 `rain-apk` artifact，打 `v*` 标签自动创建 Release 并附上全部 APK，
+并上传 `rainplayer-apk` artifact，打 `v*` 标签自动创建 Release 并附上全部 APK，
 也支持在 Actions 页面手动 `Run workflow`。
 
 构建逻辑在 [`scripts/ci-build.sh`](scripts/ci-build.sh)，不用
@@ -218,7 +218,7 @@ cmdline-tools 16.0 起该包已移除，会直接失败。脚本改为复用 run
 
 | Secret | 内容 |
 | --- | --- |
-| `KEYSTORE_BASE64` | `base64 -w0 rain.jks` 的完整输出，单行 |
+| `KEYSTORE_BASE64` | `base64 -w0 rainplayer.jks` 的完整输出，单行 |
 | `KEYSTORE_PASSWORD` | keystore 口令 |
 | `KEY_ALIAS` | 密钥别名 |
 | `KEY_PASSWORD` | 密钥口令 |

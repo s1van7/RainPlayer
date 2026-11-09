@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">Rain</string>
-    <string name="app_name_tv">Rain</string>
+    <string name="app_name">RainPlayer</string>
+    <string name="app_name_tv">RainPlayer</string>
     <string name="login_title">连接媒体服务器</string>
     <string name="login_subtitle">支持 Emby / Jellyfin / 飞牛影视</string>
     <string name="server_address">服务器地址</string>

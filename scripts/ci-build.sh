@@ -101,7 +101,7 @@ for f in app/build/outputs/apk/release/*.apk; do
   case "$short" in
     x86|x86_64) continue ;;
   esac
-  cp "$f" "artifacts/rain-${short}.apk"
+  cp "$f" "artifacts/rainplayer-${short}.apk"
   found=$((found + 1))
 done
 
@@ -115,5 +115,5 @@ ls -lh artifacts
 
 # 打印实际签名证书，便于确认 CI 产物能否覆盖安装 Release 包
 echo "==> 签名证书"
-keytool -printcert -jarfile artifacts/rain-universal.apk 2>/dev/null \
+keytool -printcert -jarfile artifacts/rainplayer-universal.apk 2>/dev/null \
   | grep -E "^Owner:|^所有者:" | sed 's/^/   /' || echo "   （读取失败，请手动用 apksigner 校验）"

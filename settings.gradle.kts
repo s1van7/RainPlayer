@@ -20,5 +20,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "Rain"
+rootProject.name = "RainPlayer"
 include(":app")

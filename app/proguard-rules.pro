@@ -12,11 +12,11 @@
 -keepclasseswithmembers class kotlinx.serialization.json.** {
     kotlinx.serialization.KSerializer serializer(...);
 }
--keep,includedescriptorclasses class com.rain.player.**$$serializer { *; }
--keepclassmembers class com.rain.player.** {
+-keep,includedescriptorclasses class com.rainplayer.**$$serializer { *; }
+-keepclassmembers class com.rainplayer.** {
     *** Companion;
 }
--keepclasseswithmembers class com.rain.player.** {
+-keepclasseswithmembers class com.rainplayer.** {
     kotlinx.serialization.KSerializer serializer(...);
 }
 

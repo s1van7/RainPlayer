@@ -22,11 +22,11 @@ val releaseStorePath = signingValue("storeFile", "LUMEN_STORE_FILE")
 val hasReleaseKeystore = releaseStorePath != null && rootProject.file(releaseStorePath).exists()
 
 android {
-    namespace = "com.rain.player"
+    namespace = "com.rainplayer"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.rain.player"
+        applicationId = "com.rainplayer"
         minSdk = 21
         targetSdk = 34
         versionCode = 1
