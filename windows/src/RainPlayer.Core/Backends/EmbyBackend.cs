@@ -1,0 +1,685 @@
+using System.Text;
+using System.Text.Json;
+using RainPlayer.Core.Json;
+using RainPlayer.Core.Models;
+using RainPlayer.Core.Net;
+
+namespace RainPlayer.Core.Backends;
+
+/// <summary>Emby / Jellyfin 后端。两者 REST 协议一致，仅少数字段差异。</summary>
+public sealed class EmbyBackend : IMediaBackend
+{
+    private readonly string _base;
+    private readonly string _token;
+    private readonly string _userId;
+
+    public ServerConfig Config { get; }
+
+    public EmbyBackend(ServerConfig config)
+    {
+        Config = config;
+        _base = BackendFactory.NormalizeUrl(config.Url);
+        _token = config.Token;
+        _userId = config.UserId;
+    }
+
+    private string AuthValue =>
+        $"MediaBrowser Client=\"RainPlayer\", Device=\"RainPlayer\", DeviceId=\"{Config.DeviceId}\", Version=\"1.0.0\"";
+
+    /// <summary>
+    /// Emby 只认 X-Emby-Authorization；Jellyfin 10.x 主推标准的 Authorization。
+    /// 两者都同时接受 X-Emby-Token，所以 token 单独走这个头最稳。
+    /// </summary>
+    private string AuthHeaderName => Config.Kind == ServerKind.Jellyfin ? "Authorization" : "X-Emby-Authorization";
+
+    private Dictionary<string, string> TokenHeaders()
+    {
+        var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            [AuthHeaderName] = AuthValue,
+        };
+        if (!string.IsNullOrWhiteSpace(_token))
+        {
+            headers["X-Emby-Token"] = _token;
+            headers["X-Emby-Authorization"] = $"{AuthValue}, Token=\"{_token}\"";
+        }
+        return headers;
+    }
+
+    public IReadOnlyDictionary<string, string> ImageHeaders => TokenHeaders();
+
+    private string Url(string path) => path.StartsWith("http", StringComparison.OrdinalIgnoreCase) ? path : _base + path;
+
+    private static string Q(string value) => Uri.EscapeDataString(value);
+
+    // ------------------------------------------------------------- 登录
+
+    public async Task<ServerConfig> AuthenticateAsync(string username, string password, CancellationToken ct = default)
+    {
+        var body = JsonSerializer.Serialize(new { Username = username, Pw = password });
+        var text = await Http.PostJsonAsync(
+            Url("/Users/AuthenticateByName"),
+            body,
+            new Dictionary<string, string> { [AuthHeaderName] = AuthValue },
+            ct).ConfigureAwait(false);
+
+        using var doc = JsonExt.Parse(text) ?? throw new InvalidOperationException("服务器返回内容无法解析");
+        var root = doc.RootElement;
+        var accessToken = root.Str("AccessToken") ?? throw new InvalidOperationException("登录失败：未返回 AccessToken");
+        var uid = root.Obj("User").Str("Id") ?? throw new InvalidOperationException("登录失败：未返回用户信息");
+
+        var result = Config.Clone();
+        result.Token = accessToken;
+        result.UserId = uid;
+        result.Username = username;
+        result.Url = _base;
+        if (string.IsNullOrWhiteSpace(result.Name))
+            result.Name = root.Obj("ServerInfo").Str("Name") ?? "Emby";
+        return result;
+    }
+
+    // ------------------------------------------------------------- 媒体库
+
+    public async Task<List<Library>> GetLibrariesAsync(CancellationToken ct = default)
+    {
+        var text = await Http.GetTextAsync(Url($"/Users/{_userId}/Views"), TokenHeaders(), ct).ConfigureAwait(false);
+        using var doc = JsonExt.Parse(text);
+        var root = (doc?.RootElement ?? default);
+        var libraries = new List<Library>();
+        foreach (var element in root.Arr("Items"))
+        {
+            var id = element.Str("Id");
+            if (string.IsNullOrEmpty(id)) continue;
+            libraries.Add(new Library
+            {
+                Id = id,
+                Name = element.StrOr("Name", "媒体库"),
+                CollectionType = element.Str("CollectionType"),
+            });
+        }
+        return libraries;
+    }
+
+    public async Task<List<HomeRow>> GetHomeRowsAsync(CancellationToken ct = default)
+    {
+        var rows = new List<HomeRow>();
+
+        try
+        {
+            var text = await Http.GetTextAsync(
+                Url($"/Users/{_userId}/Items/Resume?Limit=20&MediaTypes=Video" +
+                    "&Fields=PrimaryImageTag,ProductionYear,RunTimeTicks,UserData,BackdropImageTags" +
+                    "&ImageTypeLimit=1&EnableImageTypes=Primary,Backdrop"),
+                TokenHeaders(), ct).ConfigureAwait(false);
+            using var doc = JsonExt.Parse(text);
+            var items = (doc?.RootElement ?? default).Arr("Items")
+                .Select(MapCard).Where(card => card != null).Select(card => card!).ToList();
+            if (items.Count > 0)
+                rows.Add(new HomeRow { Title = "继续观看", Items = items, Kind = RowKind.Continue });
+        }
+        catch
+        {
+            // 继续观看失败不影响首页其它分区
+        }
+
+        List<Library> libraries;
+        try
+        {
+            libraries = await GetLibrariesAsync(ct).ConfigureAwait(false);
+        }
+        catch
+        {
+            libraries = new List<Library>();
+        }
+
+        foreach (var library in libraries.Take(6))
+        {
+            try
+            {
+                var text = await Http.GetTextAsync(
+                    Url($"/Users/{_userId}/Items/Latest?ParentId={library.Id}&Limit=18" +
+                        "&Fields=PrimaryImageTag,ProductionYear,RunTimeTicks,UserData,BackdropImageTags" +
+                        "&ImageTypeLimit=1&EnableImageTypes=Primary,Backdrop"),
+                    TokenHeaders(), ct).ConfigureAwait(false);
+                using var doc = JsonExt.Parse(text);
+                var items = (doc?.RootElement ?? default).Arr()
+                    .Select(MapCard).Where(card => card != null).Select(card => card!).ToList();
+                if (items.Count > 0)
+                    rows.Add(new HomeRow { Title = library.Name, Items = items, Kind = RowKind.Library, LibraryId = library.Id });
+            }
+            catch
+            {
+                // 单个库失败跳过
+            }
+        }
+
+        return rows;
+    }
+
+    public async Task<PagedItems> GetItemsAsync(string libraryId, int startIndex, int limit, CancellationToken ct = default)
+    {
+        var text = await Http.GetTextAsync(
+            Url($"/Users/{_userId}/Items?ParentId={Q(libraryId)}&Recursive=true" +
+                "&IncludeItemTypes=Movie,Series,Video,Folder&SortBy=SortName&SortOrder=Ascending" +
+                $"&StartIndex={startIndex}&Limit={limit}" +
+                "&Fields=PrimaryImageTag,ProductionYear,RunTimeTicks,UserData,BackdropImageTags,CommunityRating" +
+                "&ImageTypeLimit=1&EnableImageTypes=Primary,Backdrop"),
+            TokenHeaders(), ct).ConfigureAwait(false);
+
+        using var doc = JsonExt.Parse(text);
+        var root = (doc?.RootElement ?? default);
+        var items = root.Arr("Items").Select(MapCard).Where(card => card != null).Select(card => card!).ToList();
+        return new PagedItems
+        {
+            Items = items,
+            Total = root.Int("TotalRecordCount") ?? items.Count,
+            StartIndex = startIndex,
+        };
+    }
+
+    public async Task<List<MediaCard>> SearchAsync(string query, CancellationToken ct = default)
+    {
+        var text = await Http.GetTextAsync(
+            Url($"/Users/{_userId}/Items?SearchTerm={Q(query)}&Recursive=true&Limit=60" +
+                "&IncludeItemTypes=Movie,Series,Episode,Video" +
+                "&Fields=PrimaryImageTag,ProductionYear,RunTimeTicks,UserData,CommunityRating" +
+                "&ImageTypeLimit=1&EnableImageTypes=Primary"),
+            TokenHeaders(), ct).ConfigureAwait(false);
+
+        using var doc = JsonExt.Parse(text);
+        return (doc?.RootElement ?? default).Arr("Items").Select(MapCard)
+            .Where(card => card != null).Select(card => card!).ToList();
+    }
+
+    // ------------------------------------------------------------- 详情
+
+    public async Task<MediaDetail> GetDetailAsync(string itemId, CancellationToken ct = default)
+    {
+        const string fields = "Overview,People,Genres,ProductionYear,RunTimeTicks,CommunityRating," +
+                              "OfficialRating,MediaSources,MediaStreams,Taglines,UserData,BackdropImageTags,ImageTags," +
+                              "PrimaryImageAspectRatio,Studios,ChildCount";
+        var text = await Http.GetTextAsync(Url($"/Users/{_userId}/Items/{itemId}?Fields={fields}"), TokenHeaders(), ct)
+            .ConfigureAwait(false);
+
+        using var doc = JsonExt.Parse(text) ?? throw new InvalidOperationException("无法获取详情");
+        var o = doc.RootElement;
+        var type = ParseType(o.Str("Type"));
+
+        var people = new List<Person>();
+        foreach (var element in o.Arr("People").Take(24))
+        {
+            var name = element.Str("Name");
+            if (string.IsNullOrEmpty(name)) continue;
+            people.Add(new Person
+            {
+                Name = name,
+                Role = element.Str("Role"),
+                ImageUrl = element.Str("PrimaryImageTag") != null
+                    ? Url($"/Items/{element.Str("Id")}/Images/Primary?maxHeight=300&quality=85&api_key={_token}")
+                    : null,
+            });
+        }
+
+        var seasons = new List<Season>();
+        var episodes = new List<Episode>();
+        if (type == MediaType.Series)
+        {
+            try
+            {
+                seasons = await GetSeasonsAsync(itemId, ct).ConfigureAwait(false);
+                if (seasons.Count > 0)
+                    episodes = await GetEpisodesAsync(itemId, seasons[0].Id, ct).ConfigureAwait(false);
+            }
+            catch
+            {
+                // 季/集加载失败时详情页仍可展示基本信息
+            }
+        }
+
+        var userData = o.Obj("UserData");
+        var playTarget = type == MediaType.Series
+            ? episodes.FirstOrDefault(e => !e.Played)?.Id ?? episodes.FirstOrDefault()?.Id ?? itemId
+            : itemId;
+
+        return new MediaDetail
+        {
+            Id = itemId,
+            Title = o.StrOr("Name", "未命名"),
+            OriginalTitle = o.Str("OriginalTitle"),
+            Overview = o.Str("Overview"),
+            Tagline = o.StringList("Taglines").FirstOrDefault(),
+            PosterUrl = PrimaryImage(itemId, o),
+            BackdropUrl = BackdropImage(itemId, o),
+            Year = o.Int("ProductionYear"),
+            Rating = o.Dbl("CommunityRating"),
+            OfficialRating = o.Str("OfficialRating"),
+            Genres = o.StringList("Genres"),
+            RuntimeMinutes = (int)(JsonExt.TicksToMs(o.Long("RunTimeTicks")) / 60_000L) is var minutes && minutes > 0 ? minutes : null,
+            Type = type,
+            People = people,
+            Seasons = seasons,
+            Episodes = episodes,
+            Favorite = userData.Bool("IsFavorite") ?? false,
+            Played = userData.Bool("Played") ?? false,
+            Progress = (userData.Dbl("PlayedPercentage") ?? 0) / 100.0,
+            PlayTargetId = playTarget,
+            Studio = o.Arr("Studios").FirstOrDefault().Str("Name"),
+        };
+    }
+
+    public async Task<List<Season>> GetSeasonsAsync(string seriesId, CancellationToken ct = default)
+    {
+        var text = await Http.GetTextAsync(
+            Url($"/Shows/{seriesId}/Seasons?UserId={_userId}&Fields=PrimaryImageTag"),
+            TokenHeaders(), ct).ConfigureAwait(false);
+
+        using var doc = JsonExt.Parse(text);
+        var result = new List<Season>();
+        var index = 0;
+        foreach (var element in (doc?.RootElement ?? default).Arr("Items"))
+        {
+            var id = element.Str("Id");
+            if (!string.IsNullOrEmpty(id))
+            {
+                result.Add(new Season
+                {
+                    Id = id,
+                    Name = element.StrOr("Name", $"第 {index + 1} 季"),
+                    Index = element.Int("IndexNumber") ?? (index + 1),
+                });
+            }
+            index++;
+        }
+        return result;
+    }
+
+    public async Task<List<Episode>> GetEpisodesAsync(string seriesId, string seasonId, CancellationToken ct = default)
+    {
+        var text = await Http.GetTextAsync(
+            Url($"/Shows/{seriesId}/Episodes?UserId={_userId}&SeasonId={seasonId}" +
+                "&Fields=Overview,PrimaryImageTag,UserData,RunTimeTicks"),
+            TokenHeaders(), ct).ConfigureAwait(false);
+
+        using var doc = JsonExt.Parse(text);
+        var result = new List<Episode>();
+        foreach (var element in (doc?.RootElement ?? default).Arr("Items"))
+        {
+            var id = element.Str("Id");
+            if (string.IsNullOrEmpty(id)) continue;
+            var ud = element.Obj("UserData");
+            var runtime = (int)(JsonExt.TicksToMs(element.Long("RunTimeTicks")) / 60_000L);
+            result.Add(new Episode
+            {
+                Id = id,
+                Title = element.StrOr("Name", $"第 {element.Int("IndexNumber") ?? 0} 集"),
+                Index = element.Int("IndexNumber") ?? 0,
+                SeasonIndex = element.Int("ParentIndexNumber") ?? 0,
+                Overview = element.Str("Overview"),
+                ImageUrl = element.Obj("ImageTags").Str("Primary") != null
+                    ? Url($"/Items/{id}/Images/Primary?maxWidth=480&quality=85&api_key={_token}")
+                    : null,
+                RuntimeMinutes = runtime > 0 ? runtime : null,
+                Played = ud.Bool("Played") ?? false,
+                Progress = (ud.Dbl("PlayedPercentage") ?? 0) / 100.0,
+            });
+        }
+        return result;
+    }
+
+    // ------------------------------------------------------------- 播放
+
+    public async Task<PlaybackPlan> GetPlaybackAsync(string itemId, long startMs, bool forceTranscode = false, CancellationToken ct = default)
+    {
+        var body = JsonSerializer.Serialize(new
+        {
+            UserId = _userId,
+            StartTimeTicks = startMs * 10_000L,
+            IsPlayback = true,
+            AutoOpenLiveStream = true,
+            MaxStreamingBitrate = 200_000_000,
+            DeviceProfile = BuildDeviceProfile(forceTranscode),
+        });
+
+        var text = await Http.PostJsonAsync(
+            Url($"/Items/{itemId}/PlaybackInfo?UserId={_userId}&StartTimeTicks={startMs * 10_000L}"),
+            body, TokenHeaders(), ct).ConfigureAwait(false);
+
+        using var doc = JsonExt.Parse(text) ?? throw new InvalidOperationException("无法获取播放信息");
+        var root = doc.RootElement;
+        var sources = root.Arr("MediaSources");
+        if (sources.Count == 0) throw new InvalidOperationException("服务器未返回媒体源");
+        var source = sources[0];
+
+        var mediaSourceId = source.Str("Id") ?? itemId;
+        var playSessionId = root.Str("PlaySessionId");
+        var container = source.Str("Container");
+        var durationMs = JsonExt.TicksToMs(source.Long("RunTimeTicks"));
+        // 断点续播：服务器记录的上次播放位置（调用方未指定起点时使用）
+        var resumeMs = JsonExt.TicksToMs(
+            source.Obj("UserData").Long("PlaybackPositionTicks")
+            ?? source.Obj("UserData").Long("PlaybackPosition"));
+
+        var streams = source.Arr("MediaStreams");
+        var videoStream = streams.FirstOrDefault(s => s.Str("Type") == "Video");
+
+        var audioTracks = new List<MediaTrack>();
+        var audioIndex = 0;
+        foreach (var s in streams.Where(s => s.Str("Type") == "Audio"))
+        {
+            audioTracks.Add(new MediaTrack
+            {
+                Index = s.Int("Index") ?? audioIndex,
+                Label = s.StrOr("DisplayTitle", $"音轨 {audioIndex + 1}"),
+                Language = s.Str("Language"),
+                Codec = s.Str("Codec"),
+                Channels = s.Int("Channels"),
+                Bitrate = s.Int("BitRate"),
+            });
+            audioIndex++;
+        }
+
+        var subtitleTracks = new List<SubtitleTrack>();
+        var subtitleIndex = 0;
+        foreach (var s in streams.Where(s => s.Str("Type") == "Subtitle"))
+        {
+            var delivery = s.Str("DeliveryUrl");
+            subtitleTracks.Add(new SubtitleTrack
+            {
+                Index = s.Int("Index") ?? subtitleIndex,
+                Label = s.StrOr("DisplayTitle", $"字幕 {subtitleIndex + 1}"),
+                Language = s.Str("Language"),
+                Codec = s.Str("Codec"),
+                Url = delivery != null
+                    ? Url(delivery) + (delivery.Contains('?') ? "&" : "?") + $"api_key={_token}"
+                    : null,
+                IsExternal = s.Bool("IsExternal") ?? (delivery != null),
+            });
+            subtitleIndex++;
+        }
+
+        var videoRange = videoStream.Str("VideoRange");
+        var videoRangeType = videoStream.Str("VideoRangeType");
+        var dolbyVision = videoRangeType?.Contains("DOVI", StringComparison.OrdinalIgnoreCase) == true
+                          || videoRange?.Equals("DOVI", StringComparison.OrdinalIgnoreCase) == true
+                          || videoStream.Str("Codec")?.Contains("dv", StringComparison.OrdinalIgnoreCase) == true;
+
+        var transcodingUrl = source.Str("TranscodingUrl");
+        var supportsDirectPlay = source.Bool("SupportsDirectPlay") ?? true;
+        var useTranscode = forceTranscode || (!supportsDirectPlay && transcodingUrl != null);
+
+        string playUrl;
+        var isHls = false;
+        if (useTranscode && transcodingUrl != null)
+        {
+            playUrl = Url(transcodingUrl) +
+                      (transcodingUrl.Contains("api_key") ? "" : $"&api_key={_token}");
+            isHls = transcodingUrl.Contains("m3u8", StringComparison.OrdinalIgnoreCase)
+                    || transcodingUrl.Contains("master", StringComparison.OrdinalIgnoreCase);
+        }
+        else
+        {
+            playUrl = Url($"/Videos/{itemId}/stream?Static=true&MediaSourceId={mediaSourceId}" +
+                          $"&DeviceId={Config.DeviceId}&api_key={_token}");
+        }
+
+        var title = "正在播放";
+        try
+        {
+            var itemText = await Http.GetTextAsync(Url($"/Users/{_userId}/Items/{itemId}"), TokenHeaders(), ct)
+                .ConfigureAwait(false);
+            using var itemDoc = JsonExt.Parse(itemText);
+            title = (itemDoc?.RootElement ?? default).Str("Name") ?? title;
+        }
+        catch
+        {
+            // 标题取不到不影响播放
+        }
+
+        var videoTracks = new List<MediaTrack>();
+        if (videoStream.ValueKind == JsonValueKind.Object)
+        {
+            videoTracks.Add(new MediaTrack
+            {
+                Index = videoStream.Int("Index") ?? 0,
+                Label = videoStream.StrOr("DisplayTitle", "视频"),
+                Codec = videoStream.Str("Codec"),
+            });
+        }
+
+        return new PlaybackPlan
+        {
+            ItemId = itemId,
+            Title = title,
+            Url = playUrl,
+            Headers = TokenHeaders(),
+            IsHls = isHls,
+            StartPositionMs = startMs > 0 ? startMs : resumeMs,
+            DurationMs = durationMs,
+            VideoTracks = videoTracks,
+            AudioTracks = audioTracks,
+            SubtitleTracks = subtitleTracks,
+            PlaySessionId = playSessionId,
+            MediaSourceId = mediaSourceId,
+            Direct = !useTranscode,
+            DynamicRange = videoRangeType ?? videoRange,
+            DolbyVision = dolbyVision,
+            Container = container,
+        };
+    }
+
+    private static object BuildDeviceProfile(bool forceTranscode)
+    {
+        var profile = new Dictionary<string, object>
+        {
+            ["MaxStreamingBitrate"] = 200_000_000,
+            ["MaxStaticBitrate"] = 200_000_000,
+            ["TranscodingProfiles"] = new object[]
+            {
+                new Dictionary<string, object>
+                {
+                    ["Container"] = "ts",
+                    ["Type"] = "Video",
+                    ["VideoCodec"] = "h264",
+                    ["AudioCodec"] = "aac,ac3,eac3",
+                    ["Context"] = "Streaming",
+                    ["Protocol"] = "hls",
+                    ["MaxAudioChannels"] = "8",
+                    ["MinSegments"] = 1,
+                    ["BreakOnNonKeyFrames"] = true,
+                },
+            },
+            ["SubtitleProfiles"] = new object[]
+                {
+                    new { Format = "srt", Method = "External" },
+                    new { Format = "ass", Method = "External" },
+                    new { Format = "ssa", Method = "External" },
+                    new { Format = "subrip", Method = "External" },
+                    new { Format = "vtt", Method = "External" },
+                    new { Format = "pgssub", Method = "Embed" },
+                    new { Format = "dvdsub", Method = "Embed" },
+                    new { Format = "dvbsub", Method = "Embed" },
+                },
+        };
+
+        if (!forceTranscode)
+        {
+            profile["DirectPlayProfiles"] = new object[]
+            {
+                new Dictionary<string, object>
+                {
+                    ["Container"] = "mkv,mp4,m4v,ts,m2ts,avi,mov,webm,wmv,flv,iso,strm,mpeg,mpg",
+                    ["Type"] = "Video",
+                    ["VideoCodec"] = "h264,hevc,h265,av1,vp9,vc1,mpeg2video,mpeg4,msmpeg4",
+                    ["AudioCodec"] = "aac,ac3,eac3,dts,truehd,mlp,flac,opus,vorbis,mp3,alac,pcm_s16le,pcm_s24le,pcm_bluray",
+                },
+            };
+        }
+
+        return profile;
+    }
+
+    public async Task ReportStartAsync(PlaybackPlan plan, long positionMs, CancellationToken ct = default)
+    {
+        try
+        {
+            await Http.PostJsonAsync(Url("/Sessions/Playing"), SessionBody(plan, positionMs, false, true), TokenHeaders(), ct)
+                .ConfigureAwait(false);
+        }
+        catch
+        {
+            // 上报失败不影响播放
+        }
+    }
+
+    public async Task ReportProgressAsync(PlaybackPlan plan, long positionMs, bool paused, CancellationToken ct = default)
+    {
+        try
+        {
+            await Http.PostJsonAsync(Url("/Sessions/Playing/Progress"), SessionBody(plan, positionMs, paused, false), TokenHeaders(), ct)
+                .ConfigureAwait(false);
+        }
+        catch
+        {
+        }
+    }
+
+    public async Task ReportStopAsync(PlaybackPlan plan, long positionMs, CancellationToken ct = default)
+    {
+        try
+        {
+            var payload = new Dictionary<string, object>
+            {
+                ["ItemId"] = plan.ItemId,
+                ["PositionTicks"] = positionMs * 10_000L,
+            };
+            if (plan.MediaSourceId != null) payload["MediaSourceId"] = plan.MediaSourceId;
+            if (plan.PlaySessionId != null) payload["PlaySessionId"] = plan.PlaySessionId;
+            await Http.PostJsonAsync(Url("/Sessions/Playing/Stopped"), JsonSerializer.Serialize(payload), TokenHeaders(), ct)
+                .ConfigureAwait(false);
+        }
+        catch
+        {
+        }
+    }
+
+    private static string SessionBody(PlaybackPlan plan, long positionMs, bool paused, bool start)
+    {
+        var payload = new Dictionary<string, object>
+        {
+            ["ItemId"] = plan.ItemId,
+            ["PositionTicks"] = positionMs * 10_000L,
+            ["IsPaused"] = paused,
+            ["IsMuted"] = false,
+            ["CanSeek"] = true,
+            ["PlayMethod"] = plan.Direct ? "DirectPlay" : "Transcode",
+        };
+        if (plan.MediaSourceId != null) payload["MediaSourceId"] = plan.MediaSourceId;
+        if (plan.PlaySessionId != null) payload["PlaySessionId"] = plan.PlaySessionId;
+        if (start)
+        {
+            payload["PlaylistLength"] = 1;
+            payload["PlaylistIndex"] = 0;
+        }
+        return JsonSerializer.Serialize(payload);
+    }
+
+    public async Task SetFavoriteAsync(string itemId, bool favorite, CancellationToken ct = default)
+    {
+        try
+        {
+            if (favorite)
+                await Http.PostJsonAsync(Url($"/Users/{_userId}/FavoriteItems/{itemId}"), "", TokenHeaders(), ct).ConfigureAwait(false);
+            else
+                await Http.DeleteJsonAsync(Url($"/Users/{_userId}/FavoriteItems/{itemId}"), null, TokenHeaders(), ct).ConfigureAwait(false);
+        }
+        catch
+        {
+        }
+    }
+
+    public async Task SetWatchedAsync(string itemId, bool watched, CancellationToken ct = default)
+    {
+        try
+        {
+            if (watched)
+                await Http.PostJsonAsync(Url($"/Users/{_userId}/PlayedItems/{itemId}"), "", TokenHeaders(), ct).ConfigureAwait(false);
+            else
+                await Http.DeleteJsonAsync(Url($"/Users/{_userId}/PlayedItems/{itemId}"), null, TokenHeaders(), ct).ConfigureAwait(false);
+        }
+        catch
+        {
+        }
+    }
+
+    /// <summary>Emby 的外挂字幕地址自带 api_key，mpv 可直接加载，无需落地。</summary>
+    public Task<bool> DownloadSubtitleAsync(SubtitleTrack track, string destPath, CancellationToken ct = default)
+        => Task.FromResult(false);
+
+    // ------------------------------------------------------------- 工具
+
+    private string? PrimaryImage(string id, JsonElement o)
+    {
+        var tag = o.Obj("ImageTags").Str("Primary");
+        if (tag == null) return null;
+        return Url($"/Items/{id}/Images/Primary?maxWidth=600&quality=88&tag={tag}&api_key={_token}");
+    }
+
+    private string? BackdropImage(string id, JsonElement o)
+    {
+        if (o.Arr("BackdropImageTags").Count == 0) return null;
+        return Url($"/Items/{id}/Images/Backdrop/0?maxWidth=1800&quality=85&api_key={_token}");
+    }
+
+    private MediaCard? MapCard(JsonElement element)
+    {
+        if (element.ValueKind != JsonValueKind.Object) return null;
+        var id = element.Str("Id");
+        if (string.IsNullOrEmpty(id)) return null;
+
+        var type = ParseType(element.Str("Type"));
+        var ud = element.Obj("UserData");
+        var tag = element.Obj("ImageTags").Str("Primary");
+        var poster = tag != null
+            ? Url($"/Items/{id}/Images/Primary?maxWidth=500&quality=85&tag={tag}&api_key={_token}")
+            : null;
+        var hasBackdrop = element.Arr("BackdropImageTags").Count > 0;
+
+        return new MediaCard
+        {
+            Id = id,
+            Title = element.StrOr("Name", "未命名"),
+            Subtitle = SubtitleOf(element, type),
+            PosterUrl = poster,
+            BackdropUrl = hasBackdrop
+                ? Url($"/Items/{id}/Images/Backdrop/0?maxWidth=1400&quality=80&api_key={_token}")
+                : poster,
+            Type = type,
+            Progress = (ud.Dbl("PlayedPercentage") ?? 0) / 100.0,
+            Played = ud.Bool("Played") ?? false,
+            Year = element.Int("ProductionYear"),
+            Rating = element.Dbl("CommunityRating"),
+        };
+    }
+
+    private static string? SubtitleOf(JsonElement element, MediaType type)
+    {
+        if (type == MediaType.Episode)
+        {
+            var season = element.Int("ParentIndexNumber") ?? 0;
+            var episode = element.Int("IndexNumber") ?? 0;
+            return $"S{season:D2}E{episode:D2}";
+        }
+        return element.Int("ProductionYear")?.ToString();
+    }
+
+    private static MediaType ParseType(string? raw) => raw?.ToLowerInvariant() switch
+    {
+        "movie" => MediaType.Movie,
+        "series" => MediaType.Series,
+        "season" => MediaType.Season,
+        "episode" => MediaType.Episode,
+        "video" or "musicvideo" => MediaType.Video,
+        "folder" or "collectionfolder" or "boxset" => MediaType.Folder,
+        _ => MediaType.Unknown,
+    };
+}

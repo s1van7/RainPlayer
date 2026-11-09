@@ -1,0 +1,63 @@
+; RainPlayer Windows 安装包脚本（Inno Setup 6）
+; 由 scripts\package.ps1 调用，也可直接：
+;   iscc /DMyAppVersion=1.0.0 /DSourceDir=..\dist /DOutputDir=..\release scripts\installer.iss
+
+#ifndef MyAppVersion
+  #define MyAppVersion "1.0.0"
+#endif
+#ifndef SourceDir
+  #define SourceDir "..\dist"
+#endif
+#ifndef OutputDir
+  #define OutputDir "..\release"
+#endif
+
+#define MyAppName "RainPlayer"
+#define MyAppPublisher "RainPlayer"
+#define MyAppExeName "RainPlayer.exe"
+#define MyAppUrl "https://github.com/s1van7/RainPlayer"
+
+[Setup]
+AppId={{7C4E1F62-9A3D-4B58-8E21-5D6A0C7B9E34}
+AppName={#MyAppName}
+AppVersion={#MyAppVersion}
+AppVerName={#MyAppName} {#MyAppVersion}
+AppPublisher={#MyAppPublisher}
+AppPublisherURL={#MyAppUrl}
+AppSupportURL={#MyAppUrl}
+AppUpdatesURL={#MyAppUrl}/releases
+DefaultDirName={autopf}\{#MyAppName}
+DefaultGroupName={#MyAppName}
+DisableProgramGroupPage=yes
+LicenseFile=..\LICENSE
+OutputDir={#OutputDir}
+OutputBaseFilename=RainPlayer-{#MyAppVersion}-win-x64-setup
+SetupIconFile=..\src\RainPlayer.App\Assets\app.ico
+Compression=lzma2/max
+SolidCompression=yes
+WizardStyle=modern
+ArchitecturesAllowed=x64
+ArchitecturesInstallIn64BitMode=x64
+MinVersion=10.0
+UninstallDisplayIcon={app}\{#MyAppExeName}
+PrivilegesRequiredOverridesAllowed=dialog
+
+[Languages]
+Name: "chinesesimplified"; MessagesFile: "compiler:Default.isl"
+
+[Tasks]
+Name: "desktopicon"; Description: "创建桌面快捷方式"; GroupDescription: "附加任务："; Flags: unchecked
+
+[Files]
+Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+
+[Icons]
+Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
+Name: "{group}\卸载 {#MyAppName}"; Filename: "{uninstallexe}"
+Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
+
+[Run]
+Filename: "{app}\{#MyAppExeName}"; Description: "立即运行 {#MyAppName}"; Flags: nowait postinstall skipifsilent
+
+[UninstallDelete]
+Type: filesandordirs; Name: "{app}"

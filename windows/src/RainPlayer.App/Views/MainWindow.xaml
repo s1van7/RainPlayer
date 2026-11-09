@@ -1,0 +1,117 @@
+<Window x:Class="RainPlayer.App.Views.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="RainPlayer"
+        Width="1280" Height="800"
+        MinWidth="960" MinHeight="600"
+        WindowStartupLocation="CenterScreen"
+        Background="{StaticResource BgBrush}"
+        FontFamily="{StaticResource AppFont}">
+
+    <Grid>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="228" />
+            <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
+
+        <!-- ==================== 左侧导航 ==================== -->
+        <Border Grid.Column="0" Background="{StaticResource SurfaceBrush}" BorderBrush="{StaticResource BorderBrush}"
+                BorderThickness="0,0,1,0">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+
+                <!-- 品牌 -->
+                <StackPanel Grid.Row="0" Margin="22,26,22,18">
+                    <TextBlock Text="RainPlayer" FontSize="21" FontWeight="Bold" />
+                    <TextBlock x:Name="ServerText" Style="{StaticResource SubText}" Margin="0,4,0,0"
+                               TextTrimming="CharacterEllipsis" />
+                </StackPanel>
+
+                <!-- 导航项 -->
+                <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Margin="12,0">
+                    <StackPanel>
+                        <RadioButton x:Name="HomeNav" Content="首页" Style="{StaticResource NavButton}"
+                                     IsChecked="True" Margin="0,0,0,4" Checked="OnHomeNav" />
+
+                        <TextBlock Text="媒体库" Style="{StaticResource SubText}" Margin="14,16,0,8"
+                                   FontSize="11" Foreground="{StaticResource FaintTextBrush}" />
+
+                        <StackPanel x:Name="LibraryNavPanel" />
+                    </StackPanel>
+                </ScrollViewer>
+
+                <!-- 底部操作 -->
+                <StackPanel Grid.Row="2" Margin="12,12,12,16">
+                    <Border Style="{StaticResource Divider}" Margin="0,0,0,10" />
+                    <Button Content="设置" Style="{StaticResource NavButton}" Height="38" Click="OnSettingsClick"
+                            HorizontalContentAlignment="Left" />
+                    <Button Content="退出登录" Style="{StaticResource NavButton}" Height="38" Click="OnSignOutClick"
+                            HorizontalContentAlignment="Left" />
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <!-- ==================== 右侧内容 ==================== -->
+        <Grid Grid.Column="1">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
+
+            <!-- 顶部栏 -->
+            <Grid Grid.Row="0" Margin="28,20,28,10">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+
+                <Button x:Name="BackButton" Grid.Column="0" Content="← 返回" Style="{StaticResource GhostButton}"
+                        Visibility="Collapsed" Margin="0,0,14,0" Click="OnBackClick" />
+
+                <TextBlock x:Name="PageTitle" Grid.Column="1" Text="首页" Style="{StaticResource TitleText}"
+                           VerticalAlignment="Center" />
+
+                <Border Grid.Column="2" Width="240" Height="38" CornerRadius="9" Background="{StaticResource CardBrush}"
+                        BorderBrush="{StaticResource BorderBrush}" BorderThickness="1">
+                    <Grid>
+                        <TextBox x:Name="SearchBox" Background="Transparent" BorderThickness="0"
+                                 Foreground="{StaticResource TextBrush}" CaretBrush="{StaticResource TextBrush}"
+                                 VerticalContentAlignment="Center" Padding="12,0" FontSize="13.5"
+                                 KeyDown="OnSearchKeyDown" />
+                        <TextBlock x:Name="SearchPlaceholder" Text="搜索影片、剧集…" IsHitTestVisible="False"
+                                   Foreground="{StaticResource FaintTextBrush}" FontSize="13.5"
+                                   VerticalAlignment="Center" Margin="13,0,0,0" />
+                    </Grid>
+                </Border>
+            </Grid>
+
+            <!-- 内容区 -->
+            <Grid Grid.Row="1">
+                <ScrollViewer x:Name="ContentScroll" VerticalScrollBarVisibility="Auto"
+                              HorizontalScrollBarVisibility="Disabled" Padding="28,6,28,28">
+                    <StackPanel x:Name="ContentPanel" />
+                </ScrollViewer>
+
+                <!-- 加载中 -->
+                <Border x:Name="LoadingLayer" Background="#800E1014" Visibility="Collapsed">
+                    <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
+                        <TextBlock Text="正在加载…" Foreground="{StaticResource SubTextBrush}" FontSize="14"
+                                   HorizontalAlignment="Center" />
+                    </StackPanel>
+                </Border>
+
+                <!-- 空状态 -->
+                <StackPanel x:Name="EmptyLayer" VerticalAlignment="Center" HorizontalAlignment="Center"
+                            Visibility="Collapsed">
+                    <TextBlock x:Name="EmptyText" Text="这里还没有内容" Foreground="{StaticResource SubTextBrush}"
+                               FontSize="14" HorizontalAlignment="Center" />
+                </StackPanel>
+            </Grid>
+        </Grid>
+    </Grid>
+</Window>

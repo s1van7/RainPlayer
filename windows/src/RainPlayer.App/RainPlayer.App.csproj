@@ -1,0 +1,43 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <UseWPF>true</UseWPF>
+    <UseWindowsForms>false</UseWindowsForms>
+    <RootNamespace>RainPlayer.App</RootNamespace>
+    <AssemblyName>RainPlayer</AssemblyName>
+    <ApplicationIcon>Assets\app.ico</ApplicationIcon>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <Version>1.0.0</Version>
+    <FileVersion>1.0.0.0</FileVersion>
+    <AssemblyVersion>1.0.0.0</AssemblyVersion>
+    <Product>RainPlayer</Product>
+    <Company>RainPlayer</Company>
+    <Description>Emby / Jellyfin / 飞牛影视 桌面播放器</Description>
+    <Copyright>MIT License</Copyright>
+    <SatelliteResourceLanguages>zh-Hans;en</SatelliteResourceLanguages>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\RainPlayer.Core\RainPlayer.Core.csproj" />
+    <ProjectReference Include="..\RainPlayer.Player\RainPlayer.Player.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="Assets\app.ico" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <!-- libmpv 由 scripts\fetch-libmpv.ps1 下载到 native\ 目录，构建时复制到输出 -->
+  <ItemGroup Condition="Exists('$(MSBuildProjectDirectory)\..\..\native\libmpv-2.dll')">
+    <None Include="$(MSBuildProjectDirectory)\..\..\native\libmpv-2.dll">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>libmpv-2.dll</Link>
+      <Visible>false</Visible>
+    </None>
+  </ItemGroup>
+
+</Project>

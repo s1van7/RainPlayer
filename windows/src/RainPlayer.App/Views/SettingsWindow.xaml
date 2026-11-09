@@ -1,0 +1,102 @@
+<Window x:Class="RainPlayer.App.Views.SettingsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="设置"
+        Width="560" Height="640"
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="NoResize"
+        Background="{StaticResource BgBrush}"
+        FontFamily="{StaticResource AppFont}">
+
+    <Grid Margin="28">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <TextBlock Grid.Row="0" Text="设置" Style="{StaticResource TitleText}" Margin="0,0,0,20" />
+
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+            <StackPanel>
+                <TextBlock Text="播放" Style="{StaticResource SectionText}" Margin="0,0,0,12" />
+
+                <CheckBox x:Name="PassthroughBox" Content="音频直通（AC3 / EAC3 / DTS / TrueHD 原码输出）"
+                          Foreground="{StaticResource TextBrush}" FontSize="13.5" Margin="0,0,0,6" />
+                <TextBlock Text="开启后交给电视或功放解码；设备不支持时关掉，由播放器软解为 PCM"
+                           Style="{StaticResource SubText}" Margin="24,0,0,14" />
+
+                <CheckBox x:Name="HardwareBox" Content="硬件解码（D3D11VA）"
+                          Foreground="{StaticResource TextBrush}" FontSize="13.5" Margin="0,0,0,6" />
+                <TextBlock Text="4K / 8K 片源建议开启，关闭后完全靠 CPU 软解"
+                           Style="{StaticResource SubText}" Margin="24,0,0,14" />
+
+                <CheckBox x:Name="HdrBox" Content="HDR 直通"
+                          Foreground="{StaticResource TextBrush}" FontSize="13.5" Margin="0,0,0,6" />
+                <TextBlock Text="把片源色彩空间原样交给系统，需要在 Windows 设置里打开 HDR"
+                           Style="{StaticResource SubText}" Margin="24,0,0,14" />
+
+                <CheckBox x:Name="AutoNextBox" Content="自动连播下一集"
+                          Foreground="{StaticResource TextBrush}" FontSize="13.5" Margin="0,0,0,6" />
+                <TextBlock Text="当前集播完后自动接续同一季的下一集"
+                           Style="{StaticResource SubText}" Margin="24,0,0,18" />
+
+                <TextBlock Text="默认音量" Style="{StaticResource SubText}" Margin="0,0,0,6" />
+                <Slider x:Name="VolumeSlider" Minimum="0" Maximum="100" Width="240"
+                        HorizontalAlignment="Left" Style="{StaticResource SeekSlider}" Margin="0,0,0,20" />
+
+                <Border Style="{StaticResource Divider}" Margin="0,0,0,18" />
+
+                <TextBlock Text="关于" Style="{StaticResource SectionText}" Margin="0,0,0,12" />
+
+                <Grid Margin="0,0,0,6">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="96" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Grid.Column="0" Text="版本" Style="{StaticResource SubText}" />
+                    <TextBlock Grid.Column="1" x:Name="VersionText" FontSize="12.5"
+                               Foreground="{StaticResource TextBrush}" />
+                </Grid>
+
+                <Grid Margin="0,0,0,6">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="96" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Grid.Column="0" Text="服务器" Style="{StaticResource SubText}" />
+                    <TextBlock Grid.Column="1" x:Name="ServerInfoText" FontSize="12.5"
+                               Foreground="{StaticResource TextBrush}" TextWrapping="Wrap" />
+                </Grid>
+
+                <Grid Margin="0,0,0,6">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="96" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Grid.Column="0" Text="播放内核" Style="{StaticResource SubText}" />
+                    <TextBlock Grid.Column="1" x:Name="MpvInfoText" FontSize="12.5"
+                               Foreground="{StaticResource TextBrush}" TextWrapping="Wrap" />
+                </Grid>
+
+                <Grid Margin="0,0,0,16">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="96" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Grid.Column="0" Text="配置目录" Style="{StaticResource SubText}" />
+                    <TextBlock Grid.Column="1" x:Name="ConfigPathText" FontSize="11.5"
+                               Foreground="{StaticResource SubTextBrush}" TextWrapping="Wrap" />
+                </Grid>
+
+                <Button Content="打开配置目录" Style="{StaticResource GhostButton}" HorizontalAlignment="Left"
+                        Click="OnOpenConfigClick" />
+            </StackPanel>
+        </ScrollViewer>
+
+        <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,18,0,0">
+            <Button Content="取消" Style="{StaticResource GhostButton}" Click="OnCancelClick" />
+            <Button Content="保存" Style="{StaticResource PrimaryButton}" Margin="10,0,0,0" Click="OnSaveClick" />
+        </StackPanel>
+    </Grid>
+</Window>

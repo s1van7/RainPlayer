@@ -3,15 +3,17 @@
 [![Release](https://img.shields.io/badge/release-v1.0.1-blue.svg)](https://github.com/s1van7/RainPlayer/releases)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 ![minSdk](https://img.shields.io/badge/minSdk-21-brightgreen.svg)
-![platform](https://img.shields.io/badge/platform-Android%20%7C%20Android%20TV-3ddc84.svg)
+![platform](https://img.shields.io/badge/platform-Android%20%7C%20Android%20TV%20%7C%20Windows-3ddc84.svg)
 
-一个同时支持 **Emby / Jellyfin / 飞牛影视（fnOS）** 的 Android 与 Android TV 播放器。
+一个同时支持 **Emby / Jellyfin / 飞牛影视（fnOS）** 的播放器，提供 **Android / Android TV** 与 **Windows** 两个客户端，
+共用同一套后端协议实现。
 参照 [Flow](https://github.com/Flow-Media-Client/Flow-release) 的 TV 交互、
 [CineIsle](https://github.com/nu1lkali/CineIsle) 的直链播放思路、
 [ChaiChaiEmbyTV](https://github.com/dh374374/ChaiChaiEmbyTV) 的低版本兼容策略实现。
 
 - **最低 Android 5.0（API 21）**，同一份 APK 同时适配手机 / 平板 / 电视盒子
-- **播放内核**：AndroidX Media3 (ExoPlayer 1.6) + Jellyfin FFmpeg 解码扩展
+- **Windows 10 1809+ / 11**，.NET 8 + WPF + libmpv，免装运行时（见 [windows/](windows/)）
+- **播放内核**：Android 用 AndroidX Media3 (ExoPlayer 1.6) + Jellyfin FFmpeg 扩展；Windows 用 libmpv
 - **直通优先**：默认直链播放，不转码，保住 4K/8K、HDR10/HLG、杜比视界与杜比全景声
 - **双后端**：Emby 走官方 REST 协议；飞牛影视走其原生 `/v/api/v1` 协议（含 Authx 签名）
 
@@ -36,11 +38,23 @@
 
 ### 安装
 
+**Android / Android TV**：
+
 ```bash
 adb install -r app-release-universal.apk
 ```
 
 电视上也可以通过 U 盘 / 当贝市场等安装 `universal` 或 `arm64-v8a` 包。
+
+**Windows**：到 [Releases](../../releases) 下载
+
+| 文件 | 说明 |
+| --- | --- |
+| `RainPlayer-<版本>-win-x64.zip` | 绿色版，解压即用，无需安装 .NET 运行时 |
+| `RainPlayer-<版本>-win-x64-setup.exe` | 安装包，创建开始菜单与桌面快捷方式 |
+
+解压后目录里必须同时有 `RainPlayer.exe` 和 `libmpv-2.dll`，缺 dll 会提示播放内核初始化失败。
+源码与构建说明见 [windows/](windows/)。
 
 ### 连接服务器
 

@@ -1,0 +1,24 @@
+# 构建产物
+bin/
+obj/
+dist/
+release/
+*.user
+*.suo
+
+# libmpv 运行时（116MB，由 scripts/fetch-libmpv.ps1 下载）
+native/*.dll
+native/*.7z
+
+# Inno Setup 中间文件
+*.exe.bak
+Output/
+
+# IDE
+.vs/
+.idea/
+*.DotSettings.user
+
+# 系统
+Thumbs.db
+.DS_Store
