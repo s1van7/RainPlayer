@@ -21,12 +21,17 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Subtitles
+import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -44,9 +49,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -59,18 +66,25 @@ import com.rainplayer.data.Season
 import com.rainplayer.player.PlayerActivity
 import com.rainplayer.ui.AppSession
 import com.rainplayer.ui.common.ErrorView
-import com.rainplayer.ui.common.RainPlayerButton
 import com.rainplayer.ui.common.LoadingView
-import com.rainplayer.ui.common.MetaChip
+import com.rainplayer.ui.common.formatClock
 import com.rainplayer.ui.common.imageRequest
 import com.rainplayer.ui.theme.GlassSurface
 import com.rainplayer.ui.theme.RainPlayerAccent
+import com.rainplayer.ui.theme.RainPlayerGold
 import com.rainplayer.ui.theme.RainPlayerSurface
 import com.rainplayer.ui.theme.RainPlayerText
 import com.rainplayer.ui.theme.RainPlayerTextDim
-import com.rainplayer.ui.theme.scrimBrush
+import com.rainplayer.ui.theme.rainPalette
 import kotlinx.coroutines.launch
 
+/**
+ * 详情页。
+ *
+ * 排版顺序对齐参考稿：
+ * 大图 + 海报 → 评分与分级 → 时长/日期/画质 → 类型 → 播放按钮 → 操作图标 →
+ * 简介 → 外站评分 → 选集 → 演职人员 → 类似作品 → 外站链接 → 媒体信息。
+ */
 @Composable
 fun DetailScreen(
     session: AppSession,
@@ -83,6 +97,7 @@ fun DetailScreen(
     val backend = session.backend
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val p = rainPalette
 
     var detail by remember { mutableStateOf<MediaDetail?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -94,7 +109,6 @@ fun DetailScreen(
     var similar by remember { mutableStateOf<List<com.rainplayer.data.MediaCard>>(emptyList()) }
     var ratings by remember { mutableStateOf(com.rainplayer.data.ExternalRatings()) }
 
-    // 版本 / 音轨 / 字幕 选择
     var options by remember { mutableStateOf<PlaybackOptions?>(null) }
     var versionId by remember { mutableStateOf<String?>(null) }
     var audioIndex by remember { mutableStateOf<Int?>(null) }
@@ -117,13 +131,11 @@ fun DetailScreen(
         loading = false
     }
 
-    // 更多类似作品：服务器不支持就静默留空
     LaunchedEffect(itemId, backend) {
         val b = backend ?: return@LaunchedEffect
         similar = runCatching { b.similar(itemId, 14) }.getOrDefault(emptyList())
     }
 
-    // TMDB / 豆瓣评分：两个源都失败就整块隐藏，绝不阻塞页面
     LaunchedEffect(itemId, detail?.title) {
         val d = detail ?: return@LaunchedEffect
         ratings = com.rainplayer.data.RatingsRepo.fetch(
@@ -136,7 +148,6 @@ fun DetailScreen(
         )
     }
 
-    // 拉取版本/音轨/字幕清单；换版本后重新拉一次该版本的轨道
     LaunchedEffect(itemId, versionId, detail?.playTargetId) {
         val b = backend ?: return@LaunchedEffect
         val target = detail?.playTargetId ?: return@LaunchedEffect
@@ -157,13 +168,16 @@ fun DetailScreen(
         }
     }
 
-    fun startPlayback(targetId: String, subtitle: String?) {
+    fun startPlayback(targetId: String, subtitle: String?, fromStart: Boolean = false) {
         val d = detail ?: return
         val list = episodes
         val index = list.indexOfFirst { it.id == targetId }
         val next = if (index >= 0) list.getOrNull(index + 1)?.id else null
         if (list.isNotEmpty()) {
-            com.rainplayer.player.PlayQueue.set(list.map { it.id }, targetId)
+            com.rainplayer.player.PlayQueue.set(
+                list.map { com.rainplayer.player.QueueEntry(it.id, it.title, it.label) },
+                targetId,
+            )
         } else {
             com.rainplayer.player.PlayQueue.clear()
         }
@@ -179,12 +193,27 @@ fun DetailScreen(
                 audioIndex = audioIndex,
                 subtitleIndex = subtitleIndex,
                 burnSubtitle = chosenSubtitle?.imageBased == true,
+                startMs = if (fromStart) -1L else 0L,
             )
         )
     }
 
+    /** 当前应该播哪一集：优先续播未看完的，其次第一个没看过的，最后第一集。 */
+    fun resumeTarget(d: MediaDetail): String {
+        if (d.type != MediaType.SERIES) return d.playTargetId
+        val list = episodes
+        return list.firstOrNull { it.progress > 0.01f && !it.played }?.id
+            ?: list.firstOrNull { !it.played }?.id
+            ?: list.firstOrNull()?.id
+            ?: d.playTargetId
+    }
+
+    fun resumeMs(d: MediaDetail, target: String): Long {
+        val ep = episodes.firstOrNull { it.id == target }
+        return ep?.progressMs ?: if (d.type == MediaType.SERIES) 0L else d.progressMs
+    }
+
     Box(Modifier.fillMaxSize()) {
-        // 版本 / 音轨 / 字幕 选择弹窗（Dialog 是独立窗口，放在哪一层都可以）
         DetailOptionDialog(
             dialog = dialog,
             options = options,
@@ -207,317 +236,321 @@ fun DetailScreen(
                 dialog = null
             },
         )
+
         when {
             loading -> LoadingView()
             error != null -> ErrorView(error!!) { }
             detail == null -> ErrorView("未找到该内容")
             else -> {
                 val d = detail!!
-                LazyColumn(
-                    contentPadding = PaddingValues(bottom = 32.dp),
-                    modifier = Modifier.fillMaxSize(),
-                ) {
+                val target = resumeTarget(d)
+                val resume = resumeMs(d, target)
+                val targetEp = episodes.firstOrNull { it.id == target }
+                val version = options?.versions?.firstOrNull { it.id == versionId }
+                    ?: options?.versions?.firstOrNull()
+                val audio = options?.audioTracks?.firstOrNull { it.index == audioIndex }
+                    ?: options?.audioTracks?.firstOrNull()
+
+                LazyColumn(contentPadding = PaddingValues(bottom = 36.dp)) {
+                    // ---------------------------------------------------- 大图
                     item {
-                        Box(Modifier.fillMaxWidth().height(260.dp)) {
+                        Box(Modifier.fillMaxWidth().height(420.dp)) {
                             AsyncImage(
                                 model = imageRequest(d.backdropUrl ?: d.posterUrl),
-                                contentDescription = null,
+                                contentDescription = d.title,
                                 contentScale = ContentScale.Crop,
                                 modifier = Modifier.fillMaxSize(),
                             )
-                            Box(Modifier.fillMaxSize().background(scrimBrush(1f)))
-                            IconButton(
-                                onClick = onBack,
-                                modifier = Modifier.padding(8.dp).align(Alignment.TopStart),
-                            ) {
-                                Icon(Icons.Filled.ArrowBack, contentDescription = "返回", tint = Color.White)
-                            }
-                            Row(
-                                Modifier.align(Alignment.BottomStart).padding(16.dp),
-                                verticalAlignment = Alignment.Bottom,
-                            ) {
-                                AsyncImage(
-                                    model = imageRequest(d.posterUrl),
-                                    contentDescription = d.title,
-                                    contentScale = ContentScale.Crop,
-                                    modifier = Modifier
-                                        .width(96.dp)
-                                        .height(144.dp)
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .background(RainPlayerSurface),
-                                )
-                                Spacer(Modifier.width(14.dp))
-                                Column(Modifier.weight(1f)) {
-                                    Text(
-                                        d.title,
-                                        color = RainPlayerText,
-                                        fontSize = 20.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        maxLines = 2,
-                                        overflow = TextOverflow.Ellipsis,
-                                    )
-                                    d.originalTitle?.takeIf { it != d.title }?.let {
-                                        Text(
-                                            it,
-                                            color = RainPlayerTextDim,
-                                            fontSize = 12.sp,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis,
+                            Box(
+                                Modifier
+                                    .fillMaxSize()
+                                    .background(
+                                        Brush.verticalGradient(
+                                            0f to Color(0x66000000),
+                                            0.45f to Color.Transparent,
+                                            0.78f to p.bg.copy(alpha = 0.86f),
+                                            1f to p.bg,
                                         )
-                                    }
-                                    Spacer(Modifier.height(6.dp))
-                                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                        d.year?.let { MetaChip("$it") }
-                                        d.rating?.let { MetaChip("%.1f".format(it)) }
-                                        d.runtimeMinutes?.let { MetaChip("${it}分钟") }
-                                        d.officialRating?.let { MetaChip(it) }
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    item {
-                        Row(
-                            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        ) {
-                            RainPlayerButton(
-                                if (d.progress > 0.01f || episodes.any { it.progress > 0.01f }) "继续播放" else "播放",
-                            ) {
-                                val target = when {
-                                    d.type == MediaType.SERIES -> {
-                                        val ep = episodes.firstOrNull { !it.played } ?: episodes.firstOrNull()
-                                        ep?.id ?: d.playTargetId
-                                    }
-                                    else -> d.playTargetId
-                                }
-                                val label = episodes.firstOrNull { it.id == target }?.let {
-                                    "第 ${it.seasonIndex} 季 · 第 ${it.index} 集"
-                                }
-                                startPlayback(target, label)
-                            }
-                            Box(
-                                Modifier
-                                    .clip(RoundedCornerShape(10.dp))
-                                    .background(RainPlayerSurface)
-                                    .clickable {
-                                        favorite = !favorite
-                                        scope.launch { backend?.setFavorite(itemId, favorite) }
-                                    }
-                                    .padding(10.dp)
-                            ) {
-                                Icon(
-                                    if (favorite) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
-                                    contentDescription = "收藏",
-                                    tint = if (favorite) RainPlayerAccent else RainPlayerTextDim,
-                                    modifier = Modifier.size(20.dp),
-                                )
-                            }
-                            Box(
-                                Modifier
-                                    .clip(RoundedCornerShape(10.dp))
-                                    .background(RainPlayerSurface)
-                                    .clickable {
-                                        played = !played
-                                        scope.launch { backend?.setWatched(itemId, played) }
-                                    }
-                                    .padding(horizontal = 14.dp, vertical = 10.dp)
-                            ) {
-                                Text(
-                                    if (played) "已看" else "标记已看",
-                                    color = if (played) RainPlayerAccent else RainPlayerTextDim,
-                                    fontSize = 12.sp,
-                                )
-                            }
-                        }
-                    }
-
-                    item {
-                        val o = options
-                        if (o != null && (o.hasVersions || o.hasAudioChoice || o.hasSubtitleChoice)) {
-                            Row(
-                                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 2.dp),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            ) {
-                                if (o.hasVersions) {
-                                    SelectChip(
-                                        label = o.versions.firstOrNull { it.id == versionId }?.name
-                                            ?: o.versions.firstOrNull()?.name ?: "版本",
-                                        prefix = "版本",
-                                    ) { dialog = DetailDialog.VERSION }
-                                }
-                                if (o.hasAudioChoice) {
-                                    SelectChip(
-                                        label = o.audioTracks.firstOrNull { it.index == audioIndex }?.label
-                                            ?: "默认",
-                                        prefix = "音轨",
-                                    ) { dialog = DetailDialog.AUDIO }
-                                }
-                                if (o.hasSubtitleChoice) {
-                                    SelectChip(
-                                        label = o.subtitleTracks.firstOrNull { it.index == subtitleIndex }?.codecLabel
-                                            ?: "关闭",
-                                        prefix = "字幕",
-                                    ) { dialog = DetailDialog.SUBTITLE }
-                                }
-                            }
-                        }
-                    }
-
-                    item {
-                        Row(
-                            Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        ) {
-                            d.genres.take(4).forEach { MetaChip(it) }
-                        }
-                    }
-
-                    // 评分：TMDB / 豆瓣。两个源都拿不到就整块不渲染。
-                    if (!ratings.isEmpty) {
-                        item {
-                            Row(
-                                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
-                                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                            ) {
-                                ratings.tmdb?.let { RatingBadge("TMDB", it, ratings.tmdbVotes) }
-                                ratings.douban?.let { RatingBadge("豆瓣", it, ratings.doubanVotes) }
-                            }
-                        }
-                    }
-
-                    // 媒体信息
-                    item {
-                        val rows = buildList {
-                            d.premiereDate?.let { add("上映日期" to it) }
-                            d.studio?.takeIf { it.isNotBlank() }?.let { add("出品" to it) }
-                            d.runtimeMinutes?.let { add("片长" to "$it 分钟") }
-                            d.officialRating?.let { add("分级" to it) }
-                            d.genres.takeIf { it.isNotEmpty() }?.let { add("类型" to it.joinToString(" / ")) }
-                            options?.versions?.takeIf { it.isNotEmpty() }?.let { vs ->
-                                add("版本" to vs.joinToString("、") { it.name })
-                            }
-                        }
-                        if (rows.isNotEmpty()) {
-                            GlassSurface(
-                                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
-                                shape = RoundedCornerShape(14.dp),
-                            ) {
-                                Column(Modifier.padding(14.dp)) {
-                                    Text(
-                                        "媒体信息",
-                                        color = RainPlayerText,
-                                        fontSize = 13.sp,
-                                        fontWeight = FontWeight.SemiBold,
                                     )
-                                    Spacer(Modifier.height(8.dp))
-                                    rows.forEach { (k, v) ->
-                                        Row(Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
-                                            Text(
-                                                k,
-                                                color = RainPlayerTextDim,
-                                                fontSize = 11.sp,
-                                                modifier = Modifier.width(72.dp),
-                                            )
-                                            Text(v, color = RainPlayerText, fontSize = 11.sp)
+                            )
+
+                            // 顶部按钮：返回 / 搜索 / 更多
+                            Row(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 10.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                RoundIconButton(Icons.Filled.ArrowBack, "返回", onBack)
+                                Spacer(Modifier.weight(1f))
+                                RoundIconButton(Icons.Filled.Refresh, "刷新") {
+                                    scope.launch {
+                                        runCatching { backend?.detail(itemId) }.getOrNull()?.let {
+                                            detail = it
+                                            episodes = it.episodes
                                         }
                                     }
                                 }
+                                Spacer(Modifier.width(8.dp))
+                                RoundIconButton(Icons.Filled.Subtitles, "字幕") {
+                                    dialog = DetailDialog.SUBTITLE
+                                }
+                            }
+
+                            // 海报压在图上，居中
+                            AsyncImage(
+                                model = imageRequest(d.posterUrl),
+                                contentDescription = d.title,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier
+                                    .align(Alignment.BottomCenter)
+                                    .padding(bottom = 18.dp)
+                                    .width(136.dp)
+                                    .height(204.dp)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(RainPlayerSurface),
+                            )
+                        }
+                    }
+
+                    // ------------------------------------------- 标题 / 评分 / 元信息
+                    item {
+                        Column(
+                            Modifier.fillMaxWidth().padding(horizontal = 20.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                        ) {
+                            Text(
+                                d.title,
+                                color = RainPlayerText,
+                                fontSize = 21.sp,
+                                fontWeight = FontWeight.Bold,
+                                textAlign = TextAlign.Center,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            d.originalTitle?.takeIf { it != d.title }?.let {
+                                Text(
+                                    it,
+                                    color = RainPlayerTextDim,
+                                    fontSize = 11.sp,
+                                    textAlign = TextAlign.Center,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+
+                            // ★ 8.0  [R]
+                            Row(
+                                Modifier.padding(top = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            ) {
+                                (d.rating ?: ratings.tmdb)?.takeIf { it > 0 }?.let {
+                                    Text("★", color = RainPlayerGold, fontSize = 13.sp)
+                                    Text(
+                                        "%.1f".format(it),
+                                        color = RainPlayerGold,
+                                        fontSize = 15.sp,
+                                        fontWeight = FontWeight.Bold,
+                                    )
+                                }
+                                d.officialRating?.takeIf { it.isNotBlank() }?.let {
+                                    Box(
+                                        Modifier
+                                            .clip(RoundedCornerShape(3.dp))
+                                            .border(1.dp, RainPlayerTextDim, RoundedCornerShape(3.dp))
+                                            .padding(horizontal = 4.dp, vertical = 1.dp)
+                                    ) {
+                                        Text(it, color = RainPlayerTextDim, fontSize = 9.sp)
+                                    }
+                                }
+                            }
+
+                            // 时长 / 上映 / 画质
+                            val meta = buildList {
+                                d.runtimeMinutes?.takeIf { it > 0 }?.let { add("${it}分钟") }
+                                d.premiereDate?.takeIf { it.isNotBlank() }?.let { add(it) }
+                                version?.resolutionLabel?.let { add(it) }
+                                version?.dynamicRange?.takeIf { it.isNotBlank() }?.let { add(it) }
+                                version?.videoCodec?.takeIf { it.isNotBlank() }?.let { add(it.uppercase()) }
+                            }
+                            if (meta.isNotEmpty()) {
+                                Text(
+                                    meta.joinToString("   "),
+                                    color = RainPlayerTextDim,
+                                    fontSize = 11.sp,
+                                    textAlign = TextAlign.Center,
+                                    modifier = Modifier.padding(top = 6.dp),
+                                )
+                            }
+
+                            if (d.genres.isNotEmpty()) {
+                                Text(
+                                    d.genres.take(4).joinToString(" · "),
+                                    color = RainPlayerTextDim,
+                                    fontSize = 11.sp,
+                                    textAlign = TextAlign.Center,
+                                    modifier = Modifier.padding(top = 4.dp),
+                                )
                             }
                         }
                     }
 
+                    // -------------------------------------------------- 播放按钮
+                    item {
+                        Box(
+                            Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 20.dp, vertical = 14.dp)
+                                .clip(RoundedCornerShape(26.dp))
+                                .background(Color.White)
+                                .clickable {
+                                    val label = targetEp?.let { "第 ${it.seasonIndex} 季 · 第 ${it.index} 集" }
+                                    startPlayback(target, label)
+                                }
+                                .padding(vertical = 13.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    Icons.Filled.PlayArrow,
+                                    contentDescription = null,
+                                    tint = Color.Black,
+                                    modifier = Modifier.size(24.dp),
+                                )
+                                Spacer(Modifier.width(6.dp))
+                                Text(
+                                    if (resume > 0) "继续播放" else "播放",
+                                    color = Color.Black,
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                )
+                                if (resume > 0) {
+                                    Spacer(Modifier.width(10.dp))
+                                    Text(
+                                        formatClock(resume),
+                                        color = Color(0x99000000),
+                                        fontSize = 12.sp,
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    // ------------------------------------------------ 操作图标行
+                    item {
+                        Row(
+                            Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 2.dp),
+                            horizontalArrangement = Arrangement.SpaceEvenly,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            ActionIcon(
+                                Icons.Filled.CheckCircle,
+                                if (played) "已看" else "标记已看",
+                                active = played,
+                            ) {
+                                played = !played
+                                scope.launch { backend?.setWatched(itemId, played) }
+                            }
+                            ActionIcon(
+                                if (favorite) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
+                                if (favorite) "已收藏" else "收藏",
+                                active = favorite,
+                            ) {
+                                favorite = !favorite
+                                scope.launch { backend?.setFavorite(itemId, favorite) }
+                            }
+                            ActionIcon(Icons.Filled.VolumeUp, "音轨") { dialog = DetailDialog.AUDIO }
+                            ActionIcon(Icons.Filled.Subtitles, "字幕") { dialog = DetailDialog.SUBTITLE }
+                            ActionIcon(Icons.Filled.Refresh, "版本") { dialog = DetailDialog.VERSION }
+                        }
+                    }
+
+                    // ---------------------------------------------------- 简介
                     item {
                         Text(
                             d.overview ?: "暂无简介",
                             color = RainPlayerTextDim,
                             fontSize = 13.sp,
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                            lineHeight = 20.sp,
+                            modifier = Modifier.padding(horizontal = 20.dp, vertical = 14.dp),
                         )
                     }
 
-                    if (d.seasons.size > 1) {
+                    // ------------------------------------------------ 外站评分
+                    if (!ratings.isEmpty) {
                         item {
-                            LazyRow(
-                                contentPadding = PaddingValues(horizontal = 16.dp),
+                            Row(
+                                Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 2.dp),
                                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                             ) {
-                                items(d.seasons) { season ->
-                                    val selected = season.id == selectedSeason?.id
-                                    Box(
-                                        Modifier
-                                            .clip(RoundedCornerShape(8.dp))
-                                            .background(if (selected) RainPlayerAccent else RainPlayerSurface)
-                                            .clickable { selectedSeason = season }
-                                            .padding(horizontal = 14.dp, vertical = 8.dp)
-                                    ) {
-                                        Text(
-                                            season.name,
-                                            color = if (selected) Color.Black else RainPlayerText,
-                                            fontSize = 13.sp,
-                                        )
-                                    }
+                                ratings.tmdb?.let { RatingBadge("TMDB", it, ratings.tmdbVotes) }
+                                ratings.douban?.let { RatingBadge("豆瓣", it, ratings.doubanVotes) }
+                                d.criticRating?.takeIf { it > 0 }?.let {
+                                    RatingBadge("烂番茄", it, null, percent = true)
                                 }
                             }
-                            Spacer(Modifier.height(8.dp))
                         }
                     }
 
-                    items(episodes, key = { it.id }) { ep ->
-                        EpisodeRow(ep, d.title) { onOpenEpisode(ep) }
-                    }
-
-                    // 更多类似作品
-                    if (similar.isNotEmpty()) {
-                        item {
-                            Column(Modifier.padding(top = 8.dp)) {
-                                Text(
-                                    "更多类似作品",
-                                    color = RainPlayerText,
-                                    fontSize = 15.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    modifier = Modifier.padding(16.dp),
-                                )
+                    // ------------------------------------------------ 选集
+                    if (d.type == MediaType.SERIES && episodes.isNotEmpty()) {
+                        if (d.seasons.size > 1) {
+                            item {
                                 LazyRow(
-                                    contentPadding = PaddingValues(horizontal = 16.dp),
+                                    contentPadding = PaddingValues(horizontal = 20.dp, vertical = 12.dp),
                                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                                 ) {
-                                    items(similar, key = { it.id }) { card ->
-                                        com.rainplayer.ui.common.PosterCard(card, 108.dp) { onOpenItem(card) }
+                                    items(d.seasons) { season ->
+                                        val selected = season.id == selectedSeason?.id
+                                        Box(
+                                            Modifier
+                                                .clip(RoundedCornerShape(8.dp))
+                                                .background(if (selected) RainPlayerAccent else RainPlayerSurface)
+                                                .clickable { selectedSeason = season }
+                                                .padding(horizontal = 14.dp, vertical = 7.dp)
+                                        ) {
+                                            Text(
+                                                season.name,
+                                                color = if (selected) Color.Black else RainPlayerText,
+                                                fontSize = 12.sp,
+                                            )
+                                        }
                                     }
                                 }
                             }
+                        } else {
+                            item {
+                                SectionTitle("选集", Modifier.padding(top = 14.dp, bottom = 6.dp))
+                            }
+                        }
+
+                        items(episodes, key = { it.id }) { ep ->
+                            EpisodeRow(ep, d.title) { onOpenEpisode(ep) }
                         }
                     }
 
+                    // ---------------------------------------------- 演职人员
                     if (d.people.isNotEmpty()) {
                         item {
                             Column {
-                                Text(
-                                    "演职员",
-                                    color = RainPlayerText,
-                                    fontSize = 15.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    modifier = Modifier.padding(16.dp),
-                                )
+                                SectionTitle("演职人员", Modifier.padding(top = 16.dp, bottom = 8.dp))
                                 LazyRow(
-                                    contentPadding = PaddingValues(horizontal = 16.dp),
-                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                    contentPadding = PaddingValues(horizontal = 20.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
                                 ) {
                                     items(d.people) { person ->
-                                        Column(Modifier.width(72.dp)) {
+                                        Column(Modifier.width(76.dp)) {
                                             AsyncImage(
                                                 model = imageRequest(person.imageUrl),
                                                 contentDescription = person.name,
                                                 contentScale = ContentScale.Crop,
                                                 modifier = Modifier
-                                                    .size(72.dp)
-                                                    .clip(RoundedCornerShape(36.dp))
+                                                    .size(76.dp)
+                                                    .clip(RoundedCornerShape(10.dp))
                                                     .background(RainPlayerSurface),
                                             )
-                                            Spacer(Modifier.height(4.dp))
+                                            Spacer(Modifier.height(5.dp))
                                             Text(
                                                 person.name,
                                                 color = RainPlayerText,
@@ -525,7 +558,7 @@ fun DetailScreen(
                                                 maxLines = 1,
                                                 overflow = TextOverflow.Ellipsis,
                                             )
-                                            person.role?.let {
+                                            person.role?.takeIf { it.isNotBlank() }?.let {
                                                 Text(
                                                     it,
                                                     color = RainPlayerTextDim,
@@ -540,6 +573,109 @@ fun DetailScreen(
                             }
                         }
                     }
+
+                    // ---------------------------------------------- 类似作品
+                    if (similar.isNotEmpty()) {
+                        item {
+                            Column {
+                                SectionTitle("类似作品", Modifier.padding(top = 18.dp, bottom = 8.dp))
+                                LazyRow(
+                                    contentPadding = PaddingValues(horizontal = 20.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                ) {
+                                    items(similar, key = { it.id }) { card ->
+                                        com.rainplayer.ui.common.PosterCard(card, 112.dp) { onOpenItem(card) }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // ------------------------------------------------ 外站链接
+                    val links = ratings.links(d.type == MediaType.SERIES)
+                    if (links.isNotEmpty()) {
+                        item {
+                            Column {
+                                SectionTitle("链接", Modifier.padding(top = 18.dp, bottom = 8.dp))
+                                Row(
+                                    Modifier.fillMaxWidth().padding(horizontal = 20.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                ) {
+                                    links.forEach { (name, url) ->
+                                        Box(
+                                            Modifier
+                                                .clip(RoundedCornerShape(16.dp))
+                                                .border(1.dp, Color(0x33FFFFFF), RoundedCornerShape(16.dp))
+                                                .clickable {
+                                                    runCatching {
+                                                        context.startActivity(
+                                                            Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url))
+                                                        )
+                                                    }
+                                                }
+                                                .padding(horizontal = 14.dp, vertical = 6.dp)
+                                        ) {
+                                            Text(name, color = RainPlayerText, fontSize = 11.sp)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // ------------------------------------------------ 媒体信息
+                    item {
+                        Column {
+                            SectionTitle("媒体信息", Modifier.padding(top = 18.dp, bottom = 8.dp))
+                            Row(
+                                Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                MediaInfoCard(
+                                    title = "视频",
+                                    icon = Icons.Filled.PlayArrow,
+                                    rows = buildList {
+                                        version?.name?.takeIf { it.isNotBlank() }?.let { add("标题" to it) }
+                                        version?.videoCodec?.let { add("编码" to it.lowercase()) }
+                                        version?.let { v ->
+                                            if (v.width != null && v.height != null) {
+                                                add("分辨率" to "${v.width}x${v.height}")
+                                            }
+                                        }
+                                        version?.bitrate?.takeIf { it > 0 }?.let {
+                                            add("比特率" to "%.1f mbps".format(it / 1_000_000.0))
+                                        }
+                                        version?.dynamicRange?.takeIf { it.isNotBlank() }?.let {
+                                            add("动态范围" to it)
+                                        }
+                                        version?.container?.takeIf { it.isNotBlank() }?.let {
+                                            add("封装" to it.uppercase())
+                                        }
+                                        version?.sizeBytes?.takeIf { it > 0 }?.let {
+                                            add("大小" to "%.1f GB".format(it / 1_073_741_824.0))
+                                        }
+                                    },
+                                    modifier = Modifier.weight(1f),
+                                )
+                                MediaInfoCard(
+                                    title = "音频",
+                                    icon = Icons.Filled.VolumeUp,
+                                    rows = buildList {
+                                        audio?.label?.takeIf { it.isNotBlank() }?.let { add("标题" to it) }
+                                        audio?.codec?.let { add("编码" to it.uppercase()) }
+                                        audio?.channels?.takeIf { it > 0 }?.let { add("声道" to "$it") }
+                                        audio?.language?.takeIf { it.isNotBlank() }?.let { add("语言" to it) }
+                                        audio?.bitrate?.takeIf { it > 0 }?.let {
+                                            add("比特率" to "%.0f kbps".format(it / 1000.0))
+                                        }
+                                        add("外部" to "否")
+                                        add("默认" to if (audio?.index == options?.defaultAudioIndex) "是" else "否")
+                                    },
+                                    modifier = Modifier.weight(1f),
+                                )
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -547,55 +683,123 @@ fun DetailScreen(
 }
 
 @Composable
-private fun RatingBadge(source: String, score: Double, votes: Int?) {
-    val p = com.rainplayer.ui.theme.rainPalette
-    Row(
+private fun SectionTitle(text: String, modifier: Modifier = Modifier) {
+    Text(
+        text,
+        color = RainPlayerText,
+        fontSize = 15.sp,
+        fontWeight = FontWeight.SemiBold,
+        modifier = modifier.padding(start = 20.dp, end = 20.dp),
+    )
+}
+
+@Composable
+private fun RoundIconButton(icon: ImageVector, label: String, onClick: () -> Unit) {
+    Box(
         Modifier
-            .clip(RoundedCornerShape(10.dp))
-            .background(p.surface.copy(alpha = 0.6f))
-            .border(1.dp, com.rainplayer.ui.theme.RainPlayerGold.copy(alpha = 0.35f), RoundedCornerShape(10.dp))
-            .padding(horizontal = 12.dp, vertical = 7.dp),
-        verticalAlignment = Alignment.CenterVertically,
+            .size(36.dp)
+            .clip(CircleShape)
+            .background(Color(0x73000000))
+            .border(1.dp, Color(0x26FFFFFF), CircleShape)
+            .clickable { onClick() },
+        contentAlignment = Alignment.Center,
     ) {
-        Text(source, color = RainPlayerTextDim, fontSize = 10.sp)
-        Spacer(Modifier.width(8.dp))
-        Text(
-            "%.1f".format(score),
-            color = com.rainplayer.ui.theme.RainPlayerGold,
-            fontSize = 16.sp,
-            fontWeight = FontWeight.Bold,
+        Icon(icon, contentDescription = label, tint = Color.White, modifier = Modifier.size(19.dp))
+    }
+}
+
+@Composable
+private fun ActionIcon(
+    icon: ImageVector,
+    label: String,
+    active: Boolean = false,
+    onClick: () -> Unit,
+) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier
+            .clip(RoundedCornerShape(10.dp))
+            .clickable { onClick() }
+            .padding(horizontal = 8.dp, vertical = 6.dp),
+    ) {
+        Icon(
+            icon,
+            contentDescription = label,
+            tint = if (active) RainPlayerAccent else RainPlayerTextDim,
+            modifier = Modifier.size(24.dp),
         )
-        votes?.takeIf { it > 0 }?.let {
-            Spacer(Modifier.width(6.dp))
-            Text(
-                if (it >= 10_000) "${it / 10_000}万" else "$it",
-                color = RainPlayerTextDim,
-                fontSize = 9.sp,
-            )
+        Spacer(Modifier.height(3.dp))
+        Text(label, color = if (active) RainPlayerAccent else RainPlayerTextDim, fontSize = 9.sp)
+    }
+}
+
+@Composable
+private fun MediaInfoCard(
+    title: String,
+    icon: ImageVector,
+    rows: List<Pair<String, String>>,
+    modifier: Modifier = Modifier,
+) {
+    GlassSurface(modifier, shape = RoundedCornerShape(14.dp)) {
+        Column(Modifier.padding(12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(icon, contentDescription = null, tint = RainPlayerTextDim, modifier = Modifier.size(15.dp))
+                Spacer(Modifier.width(6.dp))
+                Text(title, color = RainPlayerText, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+            }
+            Spacer(Modifier.height(8.dp))
+            if (rows.isEmpty()) {
+                Text("未提供", color = RainPlayerTextDim, fontSize = 10.sp)
+            } else {
+                rows.forEach { (k, v) ->
+                    Row(Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
+                        Text(
+                            k,
+                            color = RainPlayerTextDim,
+                            fontSize = 10.sp,
+                            modifier = Modifier.width(52.dp),
+                        )
+                        Text(
+                            v,
+                            color = RainPlayerText,
+                            fontSize = 10.sp,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+            }
         }
     }
 }
 
 @Composable
-private fun SelectChip(prefix: String, label: String, onClick: () -> Unit) {
+private fun RatingBadge(source: String, score: Double, votes: Int?, percent: Boolean = false) {
+    val p = rainPalette
     Row(
         Modifier
-            .clip(RoundedCornerShape(8.dp))
-            .background(RainPlayerSurface)
-            .clickable { onClick() }
-            .padding(horizontal = 12.dp, vertical = 8.dp),
+            .clip(RoundedCornerShape(9.dp))
+            .background(p.surface.copy(alpha = 0.6f))
+            .border(1.dp, RainPlayerGold.copy(alpha = 0.3f), RoundedCornerShape(9.dp))
+            .padding(horizontal = 10.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(prefix, color = RainPlayerTextDim, fontSize = 11.sp)
+        Text(source, color = RainPlayerTextDim, fontSize = 9.sp)
         Spacer(Modifier.width(6.dp))
         Text(
-            label,
-            color = RainPlayerText,
-            fontSize = 12.sp,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.widthIn(max = 110.dp),
+            if (percent) "${score.toInt()}%" else "%.1f".format(score),
+            color = RainPlayerGold,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Bold,
         )
+        votes?.takeIf { it > 0 }?.let {
+            Spacer(Modifier.width(5.dp))
+            Text(
+                if (it >= 10_000) "${it / 10_000}万" else "$it",
+                color = RainPlayerTextDim,
+                fontSize = 8.sp,
+            )
+        }
     }
 }
 
@@ -623,12 +827,17 @@ private fun DetailOptionDialog(
         text = {
             LazyColumn(Modifier.heightIn(max = 380.dp)) {
                 when (dialog) {
-                    DetailDialog.VERSION -> items(options.versions, key = { it.id }) { v ->
-                        DialogRow(
-                            label = v.name,
-                            detail = v.summary.takeIf { it.isNotBlank() },
-                            selected = v.id == (versionId ?: options.versions.firstOrNull()?.id),
-                        ) { onVersion(v.id) }
+                    DetailDialog.VERSION -> {
+                        if (options.versions.isEmpty()) {
+                            item { DialogRow("服务器没有提供其它版本", null, false) {} }
+                        }
+                        items(options.versions, key = { it.id }) { v ->
+                            DialogRow(
+                                label = v.name,
+                                detail = v.summary.takeIf { it.isNotBlank() },
+                                selected = v.id == (versionId ?: options.versions.firstOrNull()?.id),
+                            ) { onVersion(v.id) }
+                        }
                     }
 
                     DetailDialog.AUDIO -> items(options.audioTracks, key = { it.index }) { t ->
@@ -704,14 +913,14 @@ private fun EpisodeRow(ep: Episode, seriesTitle: String, onClick: () -> Unit) {
         Modifier
             .fillMaxWidth()
             .clickable { onClick() }
-            .padding(horizontal = 16.dp, vertical = 8.dp),
+            .padding(horizontal = 20.dp, vertical = 7.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(
             Modifier
                 .width(112.dp)
                 .height(63.dp)
-                .clip(RoundedCornerShape(6.dp))
+                .clip(RoundedCornerShape(7.dp))
                 .background(RainPlayerSurface),
         ) {
             AsyncImage(
@@ -735,13 +944,13 @@ private fun EpisodeRow(ep: Episode, seriesTitle: String, onClick: () -> Unit) {
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
             Text(
-                "${ep.index}. ${ep.title}",
+                "S%02dE%02d · %s".format(ep.seasonIndex, ep.index, ep.title),
                 color = RainPlayerText,
                 fontSize = 13.sp,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            ep.overview?.let {
+            ep.overview?.takeIf { it.isNotBlank() }?.let {
                 Text(
                     it,
                     color = RainPlayerTextDim,

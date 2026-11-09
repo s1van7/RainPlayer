@@ -2,12 +2,12 @@
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
 
     <!-- ============================ 调色板 ============================ -->
-    <Color x:Key="BgColor">#0E1014</Color>
-    <Color x:Key="SurfaceColor">#16191F</Color>
-    <Color x:Key="CardColor">#1D2129</Color>
-    <Color x:Key="CardHoverColor">#262B35</Color>
-    <Color x:Key="AccentColor">#4F8CFF</Color>
-    <Color x:Key="AccentHoverColor">#6BA0FF</Color>
+    <Color x:Key="BgColor">#121A24</Color>
+    <Color x:Key="SurfaceColor">#1A2432</Color>
+    <Color x:Key="CardColor">#243244</Color>
+    <Color x:Key="CardHoverColor">#2C3C50</Color>
+    <Color x:Key="AccentColor">#6C9BFF</Color>
+    <Color x:Key="AccentHoverColor">#8FB3FF</Color>
 
     <SolidColorBrush x:Key="BgBrush" Color="{StaticResource BgColor}" />
     <SolidColorBrush x:Key="SurfaceBrush" Color="{StaticResource SurfaceColor}" />
@@ -15,10 +15,10 @@
     <SolidColorBrush x:Key="CardHoverBrush" Color="{StaticResource CardHoverColor}" />
     <SolidColorBrush x:Key="AccentBrush" Color="{StaticResource AccentColor}" />
     <SolidColorBrush x:Key="AccentHoverBrush" Color="{StaticResource AccentHoverColor}" />
-    <SolidColorBrush x:Key="TextBrush" Color="#F2F4F8" />
-    <SolidColorBrush x:Key="SubTextBrush" Color="#9BA3B4" />
-    <SolidColorBrush x:Key="FaintTextBrush" Color="#6B7280" />
-    <SolidColorBrush x:Key="BorderBrush" Color="#2A2F3A" />
+    <SolidColorBrush x:Key="TextBrush" Color="#F3F6FB" />
+    <SolidColorBrush x:Key="SubTextBrush" Color="#A4B0C2" />
+    <SolidColorBrush x:Key="FaintTextBrush" Color="#76839A" />
+    <SolidColorBrush x:Key="BorderBrush" Color="#31415A" />
     <SolidColorBrush x:Key="DangerBrush" Color="#F05252" />
     <!-- 毛玻璃面板的亮边；关闭毛玻璃时由 ThemeManager 置为全透明 -->
     <SolidColorBrush x:Key="GlassBorderBrush" Color="#24FFFFFF" />

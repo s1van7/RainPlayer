@@ -38,11 +38,8 @@ public sealed class AppSettings
     /// <summary>首页「继续观看」上方的每日推荐轮播。</summary>
     public bool DailyRecommend { get; set; } = true;
 
-    /// <summary>
-    /// TMDB v3 API Key。
-    /// 默认值是内置的公共 Key，开箱即用；用户清空（存空串）则关闭 TMDB 评分。
-    /// </summary>
-    public string TmdbApiKey { get; set; } = Keys.TmdbApiKey;
+    /// <summary>TMDB v3 API Key。留空则不显示 TMDB 评分。</summary>
+    public string TmdbApiKey { get; set; } = "";
 
     /// <summary>豆瓣评分（第三方聚合接口，失败静默隐藏）。</summary>
     public bool DoubanRating { get; set; } = true;

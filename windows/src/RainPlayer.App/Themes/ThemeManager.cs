@@ -31,39 +31,39 @@ public static class ThemeManager
     public static readonly Palette[] All =
     {
         new("midnight", "极夜蓝",
-            Bg: Hex("#0B0D12"), Surface: Hex("#151922"), Card: Hex("#1E2430"), CardHover: Hex("#252C3B"),
-            Accent: Hex("#6C8CFF"), AccentHover: Hex("#8AA3FF"), Text: Hex("#F2F4F8"),
-            SubText: Hex("#9BA3B4"), Faint: Hex("#6B7280"), Border: Hex("#2A3142")),
+            Bg: Hex("#121A24"), Surface: Hex("#1A2432"), Card: Hex("#243244"), CardHover: Hex("#2C3C50"),
+            Accent: Hex("#6C9BFF"), AccentHover: Hex("#8FB3FF"), Text: Hex("#F3F6FB"),
+            SubText: Hex("#A4B0C2"), Faint: Hex("#76839A"), Border: Hex("#31415A")),
 
         new("graphite", "石墨灰",
-            Bg: Hex("#08090A"), Surface: Hex("#121417"), Card: Hex("#1C1F24"), CardHover: Hex("#242830"),
+            Bg: Hex("#16181C"), Surface: Hex("#1E2126"), Card: Hex("#2A2E35"), CardHover: Hex("#333840"),
             Accent: Hex("#D5DAE3"), AccentHover: Hex("#EDF1F7"), Text: Hex("#F4F5F7"),
-            SubText: Hex("#9AA0AA"), Faint: Hex("#666B73"), Border: Hex("#2A2E34")),
+            SubText: Hex("#A3A9B4"), Faint: Hex("#727880"), Border: Hex("#353A42")),
 
         new("ocean", "深海青",
-            Bg: Hex("#04100F"), Surface: Hex("#0A1A18"), Card: Hex("#102623"), CardHover: Hex("#153029"),
-            Accent: Hex("#35D0C0"), AccentHover: Hex("#57E4D5"), Text: Hex("#EFFAF8"),
-            SubText: Hex("#8FAFAA"), Faint: Hex("#5C7A76"), Border: Hex("#1D3A36")),
+            Bg: Hex("#0F2024"), Surface: Hex("#162C31"), Card: Hex("#1F3C42"), CardHover: Hex("#284A50"),
+            Accent: Hex("#3FD6C4"), AccentHover: Hex("#63E8D8"), Text: Hex("#EFFAF8"),
+            SubText: Hex("#9CBDB7"), Faint: Hex("#6D8F8A"), Border: Hex("#28464C")),
 
         new("violet", "暮光紫",
-            Bg: Hex("#0B0714"), Surface: Hex("#150E24"), Card: Hex("#201634"), CardHover: Hex("#2A1D43"),
-            Accent: Hex("#B57BFF"), AccentHover: Hex("#C99BFF"), Text: Hex("#F6F1FF"),
-            SubText: Hex("#A99BBB"), Faint: Hex("#6E6280"), Border: Hex("#31234A")),
+            Bg: Hex("#1A1326"), Surface: Hex("#231831"), Card: Hex("#302343"), CardHover: Hex("#3A2C51"),
+            Accent: Hex("#BE8CFF"), AccentHover: Hex("#D0A8FF"), Text: Hex("#F7F2FF"),
+            SubText: Hex("#B2A4C6"), Faint: Hex("#7F7294"), Border: Hex("#3F2F58")),
 
         new("amber", "暖琥珀",
-            Bg: Hex("#100C06"), Surface: Hex("#1A1309"), Card: Hex("#261B0E"), CardHover: Hex("#322414"),
-            Accent: Hex("#F0A93B"), AccentHover: Hex("#FFBE5C"), Text: Hex("#FDF7EC"),
-            SubText: Hex("#B5A78F"), Faint: Hex("#7C7160"), Border: Hex("#3A2C18")),
+            Bg: Hex("#1D1610"), Surface: Hex("#261C13"), Card: Hex("#35281A"), CardHover: Hex("#403120"),
+            Accent: Hex("#F5B34A"), AccentHover: Hex("#FFC76B"), Text: Hex("#FDF8EE"),
+            SubText: Hex("#C0B199"), Faint: Hex("#8C7F6B"), Border: Hex("#473522")),
 
         new("rose", "玫瑰红",
-            Bg: Hex("#12070B"), Surface: Hex("#1B0C12"), Card: Hex("#28131B"), CardHover: Hex("#341922"),
-            Accent: Hex("#FF6B8A"), AccentHover: Hex("#FF8CA4"), Text: Hex("#FFF1F4"),
-            SubText: Hex("#BF9AA4"), Faint: Hex("#84656D"), Border: Hex("#3E1D28")),
+            Bg: Hex("#21141B"), Surface: Hex("#2A1820"), Card: Hex("#38222D"), CardHover: Hex("#442A36"),
+            Accent: Hex("#FF7E9B"), AccentHover: Hex("#FF9DB4"), Text: Hex("#FFF2F5"),
+            SubText: Hex("#C8A4AE"), Faint: Hex("#8E6B75"), Border: Hex("#4A2C38")),
 
         new("forest", "松林绿",
-            Bg: Hex("#050F0A"), Surface: Hex("#0A1811"), Card: Hex("#12251A"), CardHover: Hex("#183022"),
-            Accent: Hex("#5FD08A"), AccentHover: Hex("#7FE3A5"), Text: Hex("#F0FBF4"),
-            SubText: Hex("#93B2A2"), Faint: Hex("#5F7D6E"), Border: Hex("#1D3626")),
+            Bg: Hex("#101F17"), Surface: Hex("#15271D"), Card: Hex("#1E3628"), CardHover: Hex("#274433"),
+            Accent: Hex("#6CDB96"), AccentHover: Hex("#8CE9AF"), Text: Hex("#F1FBF5"),
+            SubText: Hex("#A0BFAF"), Faint: Hex("#729182"), Border: Hex("#27402F")),
     };
 
     public static Palette Current { get; private set; } = All[0];

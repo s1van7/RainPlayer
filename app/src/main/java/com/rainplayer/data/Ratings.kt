@@ -24,15 +24,29 @@ data class ExternalRatings(
     val doubanVotes: Int? = null,
     val tmdbId: Int? = null,
     val doubanId: String? = null,
+    val imdbId: String? = null,
 ) {
     val isEmpty: Boolean get() = tmdb == null && douban == null
+
+    /** 详情页「链接」区块要展示的外站跳转。 */
+    fun links(isTv: Boolean): List<Pair<String, String>> = buildList {
+        doubanId?.takeIf { it.isNotBlank() }?.let {
+            add("豆瓣" to "https://movie.douban.com/subject/$it/")
+        }
+        tmdbId?.let {
+            add("TMDB" to "https://www.themoviedb.org/${if (isTv) "tv" else "movie"}/$it")
+        }
+        imdbId?.takeIf { it.isNotBlank() }?.let {
+            add("IMDb" to "https://www.imdb.com/title/$it/")
+            add("Trakt" to "https://trakt.tv/search/imdb/$it")
+        }
+    }
 }
 
 /**
  * 评分聚合。
  *
- * - **TMDB**：官方 API。内置了一把公共 v3 Key（见 [com.rainplayer.core.Keys]），
- *   开箱即用；用户可以在设置里替换成自己的，清空则关闭这一项。
+ * - **TMDB**：官方 API，需要用户在设置里填自己的 v3 API Key。没填就整块隐藏。
  * - **豆瓣**：豆瓣官方 API 早已关闭，这里走公开的第三方聚合接口（wmdb），
  *   拿不到就静默返回空——绝不因为评分把详情页卡住或报错。
  *
@@ -86,6 +100,7 @@ object RatingsRepo {
             douban = douban?.douban,
             doubanVotes = douban?.doubanVotes,
             doubanId = douban?.doubanId,
+            imdbId = tmdb?.imdbId,
         )
         // 两个源都空时不缓存，避免用户刚填好 Key 还要等缓存过期
         if (!merged.isEmpty) {
@@ -122,9 +137,17 @@ object RatingsRepo {
             val votes = first.int("vote_count")
             val id = first.int("id")
             if (vote == null) continue
-            return ExternalRatings(tmdb = round1(vote), tmdbVotes = votes, tmdbId = id)
+            val imdb = id?.let { runCatching { queryImdbId(it, kind, apiKey) }.getOrNull() }
+            return ExternalRatings(tmdb = round1(vote), tmdbVotes = votes, tmdbId = id, imdbId = imdb)
         }
         return ExternalRatings()
+    }
+
+    /** 取 IMDb id，用于详情页「链接」跳转。拿不到就算了，不影响评分。 */
+    private suspend fun queryImdbId(tmdbId: Int, kind: String, apiKey: String): String? {
+        val url = "$TMDB_BASE/$kind/$tmdbId/external_ids?api_key=$apiKey"
+        val root = J.obj(Http.getText(url)) ?: return null
+        return root.str("imdb_id")?.takeIf { it.startsWith("tt") }
     }
 
     // -------------------------------------------------------------- 豆瓣聚合

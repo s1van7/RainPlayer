@@ -37,6 +37,7 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Subtitles
+import androidx.compose.material.icons.filled.VideoLibrary
 import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
@@ -95,6 +96,7 @@ fun PlayerScreen(
     onBrightnessDelta: (Float) -> Unit,
     onVolumeDelta: (Float) -> Unit,
     onSpeedBoost: (active: Boolean, forward: Boolean) -> Unit,
+    onSelectEpisode: (String) -> Unit = {},
 ) {
     val focusRequester = remember { FocusRequester() }
     var dragging by remember { mutableStateOf(false) }
@@ -150,11 +152,16 @@ fun PlayerScreen(
             Modifier
                 .fillMaxSize()
                 .pointerInput(ui.panel) {
+                    // 手指抖动容差。之前用的是固定 26px（在 3x 屏上只有 8dp 左右），
+                    // 稍微动一下就判成「拖动」，长按几乎按不出来，所以改成 dp。
+                    val slop = 32.dp.toPx()
+                    val holdMs = 420L
                     awaitEachGesture {
                         // 只处理没人消费的触摸：控制条上的按钮点击不会被误判成「点击画面」
                         val down = awaitFirstDown(requireUnconsumed = true)
                         val width = size.width.toFloat().coerceAtLeast(1f)
                         val height = size.height.toFloat().coerceAtLeast(1f)
+                        // 左右各占半屏：亮度/音量与长按快进快退用的是同一块区域
                         val leftSide = down.position.x < width / 2f
                         var lastY = down.position.y
                         var dragged = false
@@ -166,26 +173,28 @@ fun PlayerScreen(
                             val event = awaitPointerEvent()
                             val change = event.changes.firstOrNull { it.id == pointerId } ?: break
                             if (!change.pressed) {
-                                if (boosting) onSpeedBoost(false, leftSide)
-                                else if (!dragged && System.currentTimeMillis() - downTime < 400) {
+                                if (boosting) onSpeedBoost(false, !leftSide)
+                                else if (!dragged && System.currentTimeMillis() - downTime < holdMs + 150) {
                                     onToggleControls()
                                 }
                                 break
                             }
                             val totalDy = change.position.y - down.position.y
                             val totalDx = change.position.x - down.position.x
-                            if (!dragged && (abs(totalDy) > 26f || abs(totalDx) > 26f)) dragged = true
+                            if (!dragged && (abs(totalDy) > slop || abs(totalDx) > slop)) dragged = true
 
-                            if (dragged && !boosting) {
+                            if (boosting) {
+                                // 已经在倍速里：手指怎么动都不再切换模式，避免滑一下就被打断
+                                change.consume()
+                            } else if (dragged) {
                                 // 上滑为增大：屏幕坐标 y 向下为正，取负
                                 val delta = -(change.position.y - lastY) / height * 1.6f
                                 if (leftSide) onBrightnessDelta(delta) else onVolumeDelta(delta)
                                 change.consume()
-                            } else if (!dragged && !boosting &&
-                                System.currentTimeMillis() - downTime > 480
-                            ) {
+                            } else if (System.currentTimeMillis() - downTime > holdMs) {
                                 boosting = true
                                 onSpeedBoost(true, !leftSide)
+                                change.consume()
                             }
                             lastY = change.position.y
                             pointerId = change.id
@@ -320,6 +329,9 @@ fun PlayerScreen(
                             fontSize = 13.sp,
                         )
                         Spacer(Modifier.width(20.dp))
+                        if (ui.episodes.size > 1) {
+                            IconButton(Icons.Filled.VideoLibrary, "选集") { onPanel(PlayerPanel.EPISODES) }
+                        }
                         IconButton(Icons.Filled.VolumeUp, "音轨") { onPanel(PlayerPanel.AUDIO) }
                         IconButton(Icons.Filled.Subtitles, "字幕") { onPanel(PlayerPanel.SUBTITLE) }
                         IconButton(Icons.Filled.Speed, "${ui.speed}x") { onPanel(PlayerPanel.SPEED) }
@@ -341,7 +353,7 @@ fun PlayerScreen(
 
                 // 侧边面板
                 if (ui.panel != PlayerPanel.NONE) {
-                    PanelOverlay(ui, onSelectAudio, onSelectSubtitle, onSetSpeed, onPanel)
+                    PanelOverlay(ui, onSelectAudio, onSelectSubtitle, onSetSpeed, onPanel, onSelectEpisode)
                 }
             }
         }
@@ -426,6 +438,7 @@ private fun PanelOverlay(
     onSelectSubtitle: (TrackOption?) -> Unit,
     onSetSpeed: (Float) -> Unit,
     onPanel: (PlayerPanel) -> Unit,
+    onSelectEpisode: (String) -> Unit,
 ) {
     Box(
         modifier = Modifier
@@ -453,6 +466,7 @@ private fun PanelOverlay(
                     PlayerPanel.SUBTITLE -> "字幕"
                     PlayerPanel.SPEED -> "倍速"
                     PlayerPanel.INFO -> "播放信息"
+                    PlayerPanel.EPISODES -> "选集"
                     PlayerPanel.NONE -> ""
                 },
                 color = RainPlayerText,
@@ -491,6 +505,18 @@ private fun PanelOverlay(
                                 label = "${speed}x",
                                 selected = abs(ui.speed - speed) < 0.01f,
                                 onClick = { onSetSpeed(speed) },
+                            )
+                        }
+                    }
+                }
+
+                PlayerPanel.EPISODES -> {
+                    LazyColumn {
+                        items(ui.episodes) { ep ->
+                            OptionRow(
+                                label = if (ep.label.isBlank()) ep.title else "${ep.label} · ${ep.title}",
+                                selected = ep.id == ui.currentEpisodeId,
+                                onClick = { onSelectEpisode(ep.id) },
                             )
                         }
                     }

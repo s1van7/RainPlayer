@@ -966,6 +966,23 @@ public partial class MainWindow : Window
             ServerIconText.Visibility = Visibility.Visible;
             ServerIconText.Text = cfg.IconText;
         }
+
+        // 服务器自带头像优先，拿不到再退回上面那套
+        var avatarUrl = cfg.UserAvatarUrl;
+        if (!string.IsNullOrEmpty(avatarUrl))
+        {
+            _ = ApplyServerAvatarAsync(cfg, avatarUrl);
+        }
+    }
+
+    private async Task ApplyServerAvatarAsync(ServerConfig cfg, string url)
+    {
+        var image = await ImageLoader.LoadAsync(url);
+        // 期间可能已经切了服务器，回来时确认一下还是同一台
+        if (image == null || _backend.Config.Id != cfg.Id) return;
+        ServerIconText.Visibility = Visibility.Collapsed;
+        ServerIconImage.Visibility = Visibility.Visible;
+        ServerIconImage.Source = image;
     }
 
     private void OnServerButtonClick(object sender, RoutedEventArgs e)

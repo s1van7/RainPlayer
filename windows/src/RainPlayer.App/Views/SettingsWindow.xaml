@@ -47,18 +47,8 @@
                 <TextBlock Text="通过第三方聚合接口获取；拿不到自动隐藏"
                            Style="{StaticResource SubText}" Margin="24,0,0,14" />
 
-                <Grid Margin="0,0,0,6">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*" />
-                        <ColumnDefinition Width="Auto" />
-                    </Grid.ColumnDefinitions>
-                    <TextBlock Grid.Column="0" Text="TMDB API Key"
-                               Style="{StaticResource SubText}" Margin="0,0,0,4" VerticalAlignment="Center" />
-                    <Button Grid.Column="1" x:Name="ResetTmdbButton" Content="恢复内置"
-                            Style="{StaticResource GhostButton}" FontSize="11"
-                            Padding="8,3" Margin="8,0,0,4" Click="OnResetTmdbClick" />
-                </Grid>
-                <TextBlock Text="已内置公共 Key，无需配置；想用自己的可在 themoviedb.org 申请后替换，清空则关闭 TMDB 评分"
+                <TextBlock Text="TMDB API Key" Style="{StaticResource SubText}" Margin="0,0,0,4" />
+                <TextBlock Text="在 themoviedb.org 免费申请 v3 Key 后填入；留空则不显示 TMDB 评分"
                            Style="{StaticResource SubText}" FontSize="11" Margin="0,0,0,6" TextWrapping="Wrap" />
                 <TextBox x:Name="TmdbKeyBox" FontSize="13" Padding="10,7" Margin="0,0,0,20"
                          Background="{StaticResource SurfaceBrush}" Foreground="{StaticResource TextBrush}"

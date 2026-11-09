@@ -190,6 +190,25 @@ public sealed class ServerConfig
             ? IconUrl
             : (string.IsNullOrEmpty(Name) ? "R" : Name[..1].ToUpperInvariant());
 
+    /// <summary>
+    /// 服务器自带的账号头像（Emby / Jellyfin 的 /Users/{id}/Images/Primary）。
+    /// 有就优先显示，用户手填的图标只作为兜底，不覆盖服务器头像。
+    /// </summary>
+    public string? UserAvatarUrl
+    {
+        get
+        {
+            if (Kind == ServerKind.FnOs) return null;
+            var user = ActiveUser;
+            if (user == null) return null;
+            if (string.IsNullOrWhiteSpace(user.UserId) ||
+                string.IsNullOrWhiteSpace(user.Token) ||
+                string.IsNullOrWhiteSpace(Url)) return null;
+            return $"{Url.TrimEnd('/')}/Users/{user.UserId}/Images/Primary" +
+                   $"?maxHeight=192&quality=80&api_key={user.Token}";
+        }
+    }
+
     public ServerConfig Clone() => new()
     {
         Id = Id,

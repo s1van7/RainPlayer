@@ -401,6 +401,51 @@ public partial class PlayerWindow : Window
 
         AudioButton.Content = audioCount > 1 ? $"音轨 {audioCount}" : "音轨";
         SubtitleButton.Content = subCount > 0 ? $"字幕 {subCount}" : "字幕";
+
+        // 队列里不止一集才显示选集入口
+        EpisodeButton.Visibility = _queue.Count > 1 ? Visibility.Visible : Visibility.Collapsed;
+        EpisodeButton.Content = _queue.Count > 1 ? $"选集 {_queue.Count}" : "选集";
+    }
+
+    /// <summary>选集：把整季列出来，点哪集跳哪集。</summary>
+    private void OnEpisodeClick(object sender, RoutedEventArgs e)
+    {
+        var menu = new ContextMenu { PlacementTarget = EpisodeButton, Placement = PlacementMode.Top };
+
+        if (_queue.Count == 0)
+        {
+            menu.Items.Add(new MenuItem { Header = "当前不是剧集", IsEnabled = false });
+        }
+        else
+        {
+            foreach (var ep in _queue)
+            {
+                var current = ep.Id == _currentItemId;
+                var item = new MenuItem
+                {
+                    Header = (current ? "● " : "    ") + $"{ep.Label} {ep.Title}".Trim(),
+                };
+                var captured = ep;
+                item.Click += async (_, _) => await PlayEpisodeAsync(captured.Id);
+                menu.Items.Add(item);
+            }
+        }
+
+        menu.IsOpen = true;
+        ShowControls();
+    }
+
+    private async Task PlayEpisodeAsync(string itemId)
+    {
+        if (itemId == _currentItemId) return;
+        if (_queue.All(ep => ep.Id != itemId)) return;
+
+        _currentItemId = itemId;
+        _ended = false;
+        var target = _queue.First(ep => ep.Id == itemId);
+        TitleText.Text = target.Title;
+
+        await LoadCurrentAsync();
     }
 
     private void OnAudioClick(object sender, RoutedEventArgs e)

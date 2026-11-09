@@ -18,6 +18,10 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material3.Icon
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -246,6 +250,40 @@ fun WideCard(
                         Brush.verticalGradient(listOf(Color.Transparent, Color(0x99000000)))
                     )
             )
+            // 播放按钮压在画面中央，和参考稿一致
+            Box(
+                Modifier
+                    .align(Alignment.Center)
+                    .size(34.dp)
+                    .clip(CircleShape)
+                    .background(Color(0x8C000000)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    Icons.Filled.PlayArrow,
+                    contentDescription = null,
+                    tint = Color.White,
+                    modifier = Modifier.size(20.dp),
+                )
+            }
+            // 右下角「11:14 / 48:09」
+            if (card.durationMs > 0) {
+                Text(
+                    buildString {
+                        if (card.progressMs > 0) {
+                            append(formatClock(card.progressMs))
+                            append(" / ")
+                        }
+                        append(formatClock(card.durationMs))
+                    },
+                    color = Color(0xE6FFFFFF),
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Medium,
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(end = 6.dp, bottom = 6.dp),
+                )
+            }
             if (card.progress > 0.01f) {
                 Box(
                     Modifier
@@ -275,6 +313,15 @@ fun WideCard(
             Text(it, color = RainPlayerTextDim, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
+}
+
+/** 毫秒 → 11:14 / 1:02:33，用于卡片角标和播放按钮。 */
+fun formatClock(ms: Long): String {
+    val total = (ms / 1000L).coerceAtLeast(0L)
+    val h = total / 3600
+    val m = (total % 3600) / 60
+    val s = total % 60
+    return if (h > 0) "%d:%02d:%02d".format(h, m, s) else "%d:%02d".format(m, s)
 }
 
 @Composable

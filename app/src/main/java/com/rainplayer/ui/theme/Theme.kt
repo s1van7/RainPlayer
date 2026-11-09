@@ -41,36 +41,39 @@ data class RainPalette(
 
 /**
  * 可选主题。key 用于持久化，改动时不要改 key。
+ *
+ * 配色基调：整体不用纯黑。底色抬到 #12~#1C 这一档，配一点冷蓝或主题色倾向，
+ * 长时间看不闷，也能让毛玻璃的高光和描边透出来。
  */
 enum class AppTheme(val key: String, val displayName: String, val palette: RainPalette) {
 
-    /** 极夜蓝：默认，冷色调，最中性。 */
+    /** 极夜蓝：默认，冷色调，接近夜空蓝而不是纯黑。 */
     MIDNIGHT(
         "midnight", "极夜蓝",
         RainPalette(
-            bg = Color(0xFF0B0D12),
-            bgTop = Color(0xFF161B28),
-            surface = Color(0xFF151922),
-            surfaceHigh = Color(0xFF1E2430),
-            accent = Color(0xFF6C8CFF),
-            accentDim = Color(0xFF2A3550),
-            text = Color(0xFFF2F4F8),
-            textDim = Color(0xFF9BA3B4),
+            bg = Color(0xFF121A24),
+            bgTop = Color(0xFF1E2B3B),
+            surface = Color(0xFF1A2432),
+            surfaceHigh = Color(0xFF243244),
+            accent = Color(0xFF6C9BFF),
+            accentDim = Color(0xFF2E4260),
+            text = Color(0xFFF3F6FB),
+            textDim = Color(0xFFA4B0C2),
         ),
     ),
 
-    /** 石墨灰：纯灰阶，夜间不刺眼，OLED 省电。 */
+    /** 石墨灰：中性灰阶，比纯黑柔和，夜间不刺眼。 */
     GRAPHITE(
         "graphite", "石墨灰",
         RainPalette(
-            bg = Color(0xFF08090A),
-            bgTop = Color(0xFF15171A),
-            surface = Color(0xFF121417),
-            surfaceHigh = Color(0xFF1C1F24),
+            bg = Color(0xFF16181C),
+            bgTop = Color(0xFF23262C),
+            surface = Color(0xFF1E2126),
+            surfaceHigh = Color(0xFF2A2E35),
             accent = Color(0xFFD5DAE3),
-            accentDim = Color(0xFF2C3038),
+            accentDim = Color(0xFF383D45),
             text = Color(0xFFF4F5F7),
-            textDim = Color(0xFF9AA0AA),
+            textDim = Color(0xFFA3A9B4),
         ),
     ),
 
@@ -78,14 +81,14 @@ enum class AppTheme(val key: String, val displayName: String, val palette: RainP
     OCEAN(
         "ocean", "深海青",
         RainPalette(
-            bg = Color(0xFF04100F),
-            bgTop = Color(0xFF0B2320),
-            surface = Color(0xFF0A1A18),
-            surfaceHigh = Color(0xFF102623),
-            accent = Color(0xFF35D0C0),
-            accentDim = Color(0xFF0F3B36),
+            bg = Color(0xFF0F2024),
+            bgTop = Color(0xFF193A40),
+            surface = Color(0xFF162C31),
+            surfaceHigh = Color(0xFF1F3C42),
+            accent = Color(0xFF3FD6C4),
+            accentDim = Color(0xFF14453F),
             text = Color(0xFFEFFAF8),
-            textDim = Color(0xFF8FAFAA),
+            textDim = Color(0xFF9CBDB7),
         ),
     ),
 
@@ -93,14 +96,14 @@ enum class AppTheme(val key: String, val displayName: String, val palette: RainP
     VIOLET(
         "violet", "暮光紫",
         RainPalette(
-            bg = Color(0xFF0B0714),
-            bgTop = Color(0xFF1B1030),
-            surface = Color(0xFF150E24),
-            surfaceHigh = Color(0xFF201634),
-            accent = Color(0xFFB57BFF),
-            accentDim = Color(0xFF35224F),
-            text = Color(0xFFF6F1FF),
-            textDim = Color(0xFFA99BBB),
+            bg = Color(0xFF1A1326),
+            bgTop = Color(0xFF2C1D42),
+            surface = Color(0xFF231831),
+            surfaceHigh = Color(0xFF302343),
+            accent = Color(0xFFBE8CFF),
+            accentDim = Color(0xFF3F2A5C),
+            text = Color(0xFFF7F2FF),
+            textDim = Color(0xFFB2A4C6),
         ),
     ),
 
@@ -108,14 +111,14 @@ enum class AppTheme(val key: String, val displayName: String, val palette: RainP
     AMBER(
         "amber", "暖琥珀",
         RainPalette(
-            bg = Color(0xFF100C06),
-            bgTop = Color(0xFF261A0C),
-            surface = Color(0xFF1A1309),
-            surfaceHigh = Color(0xFF261B0E),
-            accent = Color(0xFFF0A93B),
-            accentDim = Color(0xFF42300F),
-            text = Color(0xFFFDF7EC),
-            textDim = Color(0xFFB5A78F),
+            bg = Color(0xFF1D1610),
+            bgTop = Color(0xFF322417),
+            surface = Color(0xFF261C13),
+            surfaceHigh = Color(0xFF35281A),
+            accent = Color(0xFFF5B34A),
+            accentDim = Color(0xFF4C3717),
+            text = Color(0xFFFDF8EE),
+            textDim = Color(0xFFC0B199),
         ),
     ),
 
@@ -123,14 +126,14 @@ enum class AppTheme(val key: String, val displayName: String, val palette: RainP
     ROSE(
         "rose", "玫瑰红",
         RainPalette(
-            bg = Color(0xFF12070B),
-            bgTop = Color(0xFF2A1018),
-            surface = Color(0xFF1B0C12),
-            surfaceHigh = Color(0xFF28131B),
-            accent = Color(0xFFFF6B8A),
-            accentDim = Color(0xFF4A1B27),
-            text = Color(0xFFFFF1F4),
-            textDim = Color(0xFFBF9AA4),
+            bg = Color(0xFF21141B),
+            bgTop = Color(0xFF361F29),
+            surface = Color(0xFF2A1820),
+            surfaceHigh = Color(0xFF38222D),
+            accent = Color(0xFFFF7E9B),
+            accentDim = Color(0xFF52222F),
+            text = Color(0xFFFFF2F5),
+            textDim = Color(0xFFC8A4AE),
         ),
     ),
 
@@ -138,14 +141,14 @@ enum class AppTheme(val key: String, val displayName: String, val palette: RainP
     FOREST(
         "forest", "松林绿",
         RainPalette(
-            bg = Color(0xFF050F0A),
-            bgTop = Color(0xFF0F2418),
-            surface = Color(0xFF0A1811),
-            surfaceHigh = Color(0xFF12251A),
-            accent = Color(0xFF5FD08A),
-            accentDim = Color(0xFF123A24),
-            text = Color(0xFFF0FBF4),
-            textDim = Color(0xFF93B2A2),
+            bg = Color(0xFF101F17),
+            bgTop = Color(0xFF193322),
+            surface = Color(0xFF15271D),
+            surfaceHigh = Color(0xFF1E3628),
+            accent = Color(0xFF6CDB96),
+            accentDim = Color(0xFF17452A),
+            text = Color(0xFFF1FBF5),
+            textDim = Color(0xFFA0BFAF),
         ),
     );
 

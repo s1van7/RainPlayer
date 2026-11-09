@@ -175,6 +175,21 @@ data class ServerConfig(
     val iconText: String
         get() = iconUrl.takeIf { !iconIsUrl && it.isNotBlank() }
             ?: name.take(1).uppercase().ifBlank { "R" }
+
+    /**
+     * 服务器自带的账号头像。
+     *
+     * Emby / Jellyfin 都提供 `/Users/{id}/Images/Primary`，用户没设头像时返回 404。
+     * 有这个地址就优先显示它，用户手动填的图标只作为兜底，不去覆盖服务器头像。
+     */
+    val userAvatarUrl: String?
+        get() {
+            if (kind == ServerKind.FNOS) return null
+            val user = activeUser ?: return null
+            if (user.userId.isBlank() || user.token.isBlank() || url.isBlank()) return null
+            return "${url.trimEnd('/')}/Users/${user.userId}/Images/Primary" +
+                "?maxHeight=192&quality=80&api_key=${user.token}"
+        }
 }
 
 
@@ -192,6 +207,10 @@ data class MediaCard(
     val played: Boolean = false,
     val year: Int? = null,
     val rating: Double? = null,
+    /** 已看时长（毫秒），用于「继续观看」卡片上的 11:14 / 48:09。 */
+    val progressMs: Long = 0L,
+    /** 总时长（毫秒）。 */
+    val durationMs: Long = 0L,
     /** 聚合搜索时标注来源服务器；单服务器场景为 null。 */
     val serverId: String? = null,
     /** 聚合搜索时标注来源账号。 */
@@ -231,6 +250,7 @@ data class Episode(
     val runtimeMinutes: Int? = null,
     val played: Boolean = false,
     val progress: Float = 0f,
+    val progressMs: Long = 0L,
     val airDate: String? = null,
     val seriesId: String? = null,
     val seriesName: String? = null,
@@ -265,6 +285,8 @@ data class MediaDetail(
     val favorite: Boolean = false,
     val played: Boolean = false,
     val progress: Float = 0f,
+    val progressMs: Long = 0L,
+    val durationMs: Long = 0L,
     /** 剧集类条目直接开播时使用的第一个可播放条目。 */
     val playTargetId: String = id,
     val studio: String? = null,

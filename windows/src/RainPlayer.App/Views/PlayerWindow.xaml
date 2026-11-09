@@ -86,6 +86,9 @@
                         </StackPanel>
 
                         <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                            <Button x:Name="EpisodeButton" Content="选集" Style="{StaticResource GhostButton}"
+                                    Height="34" FontSize="12" Click="OnEpisodeClick" Margin="0,0,6,0"
+                                    Visibility="Collapsed" ToolTip="切换剧集" />
                             <Button x:Name="AudioButton" Content="音轨" Style="{StaticResource GhostButton}"
                                     Height="34" FontSize="12" Click="OnAudioClick" Margin="0,0,6,0" />
                             <Button x:Name="SubtitleButton" Content="字幕" Style="{StaticResource GhostButton}"

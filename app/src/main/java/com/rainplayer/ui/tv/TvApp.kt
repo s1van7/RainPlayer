@@ -299,7 +299,7 @@ private fun NavRail(current: TvTab, session: AppSession, onSelect: (TvTab) -> Un
         Modifier
             .width(200.dp)
             .fillMaxHeight()
-            .background(Color(0xFF0E1118))
+            .background(com.rainplayer.ui.theme.rainPalette.bg.copy(alpha = 0.72f))
             .padding(vertical = 24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
@@ -912,7 +912,10 @@ private fun TvDetailScreen(
         val index = episodes.indexOfFirst { it.id == targetId }
         val next = episodes.getOrNull(index + 1)?.id
         if (episodes.isNotEmpty()) {
-            com.rainplayer.player.PlayQueue.set(episodes.map { it.id }, targetId)
+            com.rainplayer.player.PlayQueue.set(
+                episodes.map { com.rainplayer.player.QueueEntry(it.id, it.title, it.label) },
+                targetId,
+            )
         } else {
             com.rainplayer.player.PlayQueue.clear()
         }
@@ -968,10 +971,15 @@ private fun TvDetailScreen(
                         contentScale = ContentScale.Crop,
                         modifier = Modifier.fillMaxSize(),
                     )
+                    val tvBg = com.rainplayer.ui.theme.rainPalette.bg
                     Box(
                         Modifier.fillMaxSize().background(
                             Brush.horizontalGradient(
-                                listOf(Color(0xF00B0D12), Color(0xCC0B0D12), Color(0x880B0D12))
+                                listOf(
+                                    tvBg.copy(alpha = 0.94f),
+                                    tvBg.copy(alpha = 0.80f),
+                                    tvBg.copy(alpha = 0.53f),
+                                )
                             )
                         )
                     )

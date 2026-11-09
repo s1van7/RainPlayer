@@ -55,12 +55,6 @@ public partial class SettingsWindow : Window
             Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "RainPlayer");
     }
 
-    /// <summary>把 TMDB Key 还原成内置的公共 Key。</summary>
-    private void OnResetTmdbClick(object sender, RoutedEventArgs e)
-    {
-        TmdbKeyBox.Text = RainPlayer.Core.Keys.TmdbApiKey;
-    }
-
     private void OnSaveClick(object sender, RoutedEventArgs e)
     {
         _settings.AudioPassthrough = PassthroughBox.IsChecked == true;

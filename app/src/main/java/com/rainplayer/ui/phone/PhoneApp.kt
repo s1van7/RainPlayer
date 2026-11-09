@@ -265,31 +265,31 @@ private fun HomeScreen(
             .fold({ Load.Ok(it) }, { Load.Err(it.message ?: "加载失败") })
     }
 
-    Column(Modifier.fillMaxSize()) {
-        HomeHeader(
-            session = session,
-            menuOpen = menuOpen,
-            onMenuOpenChange = { menuOpen = it },
-            onRefresh = { reloadKey++ },
-            onNavigate = onNavigate,
-            onPush = onPush,
-            onLogout = onLogout,
-        )
+    val ok = state as? Load.Ok
+    val rows = remember(ok, active?.hiddenLibraries, active?.libraryOrder) {
+        ok?.let { arrangeRows(active, it.data) } ?: emptyList()
+    }
+    val daily = remember(rows) { dailyPicks(rows) }
+    // 有大图时标题栏浮在图上；否则让出 60dp 给标题栏，内容从它下面开始
+    val showHero = ok != null && rows.isNotEmpty() && Graph.prefs.dailyRecommend && daily.isNotEmpty()
 
-        when (val s = state) {
+    Box(Modifier.fillMaxSize()) {
+        val snapshot = state
+        when (snapshot) {
             is Load.Loading -> LoadingView()
-            is Load.Err -> ErrorView(s.message) { reloadKey++ }
+            is Load.Err -> ErrorView(snapshot.message) { reloadKey++ }
             is Load.Ok -> {
-                val rows = arrangeRows(active, s.data)
                 if (rows.isEmpty()) {
                     EmptyView("服务器上没有找到内容")
                 } else {
-                    val daily = remember(rows) { dailyPicks(rows) }
-                    LazyColumn(contentPadding = PaddingValues(top = 4.dp, bottom = 28.dp)) {
-                        if (Graph.prefs.dailyRecommend && daily.isNotEmpty()) {
-                            item(key = "daily") {
-                                DailyCarousel(daily, onOpen)
-                            }
+                    LazyColumn(
+                        contentPadding = PaddingValues(
+                            top = if (showHero) 0.dp else 60.dp,
+                            bottom = 28.dp,
+                        ),
+                    ) {
+                        if (showHero) {
+                            item(key = "hero") { DailyHero(daily, onOpen) }
                         }
                         items(rows) { row ->
                             SectionRow(
@@ -304,6 +304,17 @@ private fun HomeScreen(
                 }
             }
         }
+
+        HomeHeader(
+            session = session,
+            menuOpen = menuOpen,
+            onMenuOpenChange = { menuOpen = it },
+            onRefresh = { reloadKey++ },
+            onNavigate = onNavigate,
+            onPush = onPush,
+            onLogout = onLogout,
+            onImage = showHero,
+        )
     }
 }
 
@@ -350,45 +361,53 @@ private fun HomeHeader(
     onNavigate: (Dest) -> Unit,
     onPush: (Dest) -> Unit,
     onLogout: () -> Unit,
+    /** 是否浮在大图之上：是则给胶囊加深色底，保证在任何画面上都读得清。 */
+    onImage: Boolean = false,
 ) {
     val active = session.active
     Row(
-        Modifier.fillMaxWidth().padding(start = 16.dp, end = 6.dp, top = 12.dp, bottom = 8.dp),
+        Modifier.fillMaxWidth().padding(start = 14.dp, end = 8.dp, top = 10.dp, bottom = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box {
             Row(
                 Modifier
-                    .clip(RoundedCornerShape(12.dp))
+                    .clip(RoundedCornerShape(24.dp))
+                    .background(if (onImage) Color(0x73000000) else Color.Transparent)
+                    .border(
+                        width = if (onImage) 1.dp else 0.dp,
+                        color = if (onImage) Color(0x26FFFFFF) else Color.Transparent,
+                        shape = RoundedCornerShape(24.dp),
+                    )
                     .clickable { onMenuOpenChange(true) }
-                    .padding(horizontal = 4.dp, vertical = 4.dp),
+                    .padding(horizontal = if (onImage) 10.dp else 4.dp, vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 if (active != null) {
-                    ServerAvatar(active, 36.dp)
-                    Spacer(Modifier.width(10.dp))
+                    ServerAvatar(active, 32.dp)
+                    Spacer(Modifier.width(9.dp))
                 }
                 Column(Modifier.weight(1f, fill = false)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
                             active?.name ?: "RainPlayer",
-                            color = RainPlayerText,
-                            fontSize = 19.sp,
-                            fontWeight = FontWeight.Bold,
+                            color = if (onImage) Color.White else RainPlayerText,
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.SemiBold,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
                         Icon(
                             Icons.Filled.KeyboardArrowDown,
                             contentDescription = "服务器菜单",
-                            tint = RainPlayerTextDim,
-                            modifier = Modifier.size(20.dp),
+                            tint = if (onImage) Color(0xCCFFFFFF) else RainPlayerTextDim,
+                            modifier = Modifier.size(18.dp),
                         )
                     }
                     Text(
                         subtitleOf(session),
-                        color = RainPlayerTextDim,
-                        fontSize = 10.sp,
+                        color = if (onImage) Color(0x99FFFFFF) else RainPlayerTextDim,
+                        fontSize = 9.sp,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
@@ -414,8 +433,25 @@ private fun HomeHeader(
             )
         }
         Spacer(Modifier.weight(1f))
-        IconButton(onClick = onRefresh) {
-            Icon(Icons.Filled.Refresh, contentDescription = "刷新", tint = RainPlayerTextDim)
+        Box(
+            Modifier
+                .size(38.dp)
+                .clip(CircleShape)
+                .background(if (onImage) Color(0x73000000) else Color.Transparent)
+                .border(
+                    width = if (onImage) 1.dp else 0.dp,
+                    color = if (onImage) Color(0x26FFFFFF) else Color.Transparent,
+                    shape = CircleShape,
+                )
+                .clickable { onRefresh() },
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                Icons.Filled.Refresh,
+                contentDescription = "刷新",
+                tint = if (onImage) Color(0xE6FFFFFF) else RainPlayerTextDim,
+                modifier = Modifier.size(19.dp),
+            )
         }
     }
 }
@@ -536,122 +572,6 @@ private fun MenuDivider() {
     )
 }
 
-// ------------------------------------------------------------------ 每日推荐轮播
-
-@Composable
-private fun DailyCarousel(items: List<MediaCard>, onOpen: (MediaCard) -> Unit) {
-    val pagerState = rememberPagerState(pageCount = { items.size })
-    val scope = rememberCoroutineScope()
-
-    LaunchedEffect(items.size) {
-        if (items.size <= 1) return@LaunchedEffect
-        while (true) {
-            delay(6500)
-            val next = (pagerState.currentPage + 1) % items.size
-            runCatching { pagerState.animateScrollToPage(next) }
-        }
-    }
-
-    Column(Modifier.fillMaxWidth().padding(bottom = 16.dp)) {
-        Row(
-            Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, bottom = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text("今日推荐", color = RainPlayerText, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
-            Spacer(Modifier.width(8.dp))
-            Text("每天换一批", color = RainPlayerTextDim, fontSize = 10.sp)
-        }
-
-        HorizontalPager(
-            state = pagerState,
-            contentPadding = PaddingValues(horizontal = 20.dp),
-            pageSpacing = 10.dp,
-            modifier = Modifier.fillMaxWidth(),
-        ) { page ->
-            val card = items[page]
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .aspectRatio(16f / 9f)
-                    .clip(RoundedCornerShape(18.dp))
-                    .background(paletteSurfaceHigh())
-                    .clickable { onOpen(card) },
-            ) {
-                AsyncImage(
-                    model = imageRequest(card.backdropUrl ?: card.posterUrl),
-                    contentDescription = card.title,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize(),
-                )
-                Box(Modifier.fillMaxSize().background(scrimBrush(1f)))
-                Column(
-                    Modifier
-                        .align(Alignment.BottomStart)
-                        .padding(16.dp)
-                ) {
-                    Text(
-                        card.title,
-                        color = Color.White,
-                        fontSize = 17.sp,
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    Spacer(Modifier.height(4.dp))
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        card.rating?.takeIf { it > 0 }?.let {
-                            Text("★ %.1f".format(it), color = RainPlayerAccent, fontSize = 11.sp)
-                            Spacer(Modifier.width(8.dp))
-                        }
-                        Text(
-                            listOfNotNull(card.year?.toString(), card.subtitle).joinToString(" · "),
-                            color = Color(0xCCFFFFFF),
-                            fontSize = 11.sp,
-                            maxLines = 1,
-                        )
-                    }
-                    Spacer(Modifier.height(10.dp))
-                    Box(
-                        Modifier
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(Color.White)
-                            .clickable { onOpen(card) }
-                            .padding(horizontal = 14.dp, vertical = 7.dp)
-                    ) {
-                        Text(
-                            if (card.progress > 0.01f) "继续观看" else "立即播放",
-                            color = Color.Black,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.SemiBold,
-                        )
-                    }
-                }
-            }
-        }
-
-        Spacer(Modifier.height(10.dp))
-        Row(
-            Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.Center,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            repeat(items.size) { index ->
-                val selected = index == pagerState.currentPage
-                Box(
-                    Modifier
-                        .padding(horizontal = 3.dp)
-                        .size(if (selected) 7.dp else 5.dp)
-                        .clip(CircleShape)
-                        .background(if (selected) RainPlayerAccent else Color(0x44FFFFFF))
-                        .clickable { scope.launch { pagerState.animateScrollToPage(index) } }
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun paletteSurfaceHigh(): Color = rainPalette.surfaceHigh
 
 // ------------------------------------------------------------------ 媒体库（含开关/排序）
 

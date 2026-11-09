@@ -58,7 +58,7 @@ data class TrackOption(
     val note: String? = null,
 )
 
-enum class PlayerPanel { NONE, AUDIO, SUBTITLE, SPEED, INFO }
+enum class PlayerPanel { NONE, AUDIO, SUBTITLE, SPEED, INFO, EPISODES }
 
 enum class GestureKind { NONE, BRIGHTNESS, VOLUME, SPEED }
 
@@ -85,6 +85,9 @@ data class PlayerUi(
     val info: List<Pair<String, String>> = emptyList(),
     val capabilities: PlaybackCapabilities? = null,
     val canPlayNext: Boolean = false,
+    /** 当前播放队列（剧集时为整季），用于选集面板。 */
+    val episodes: List<QueueEntry> = emptyList(),
+    val currentEpisodeId: String = "",
     val gesture: GestureState = GestureState(),
     val boosted: Boolean = false,
     val notice: String? = null,
@@ -153,6 +156,8 @@ class PlayerActivity : ComponentActivity() {
             title = intent.getStringExtra(EXTRA_TITLE) ?: "正在播放",
             subtitle = intent.getStringExtra(EXTRA_SUBTITLE),
             canPlayNext = !nextItemId.isNullOrBlank(),
+            episodes = PlayQueue.all(),
+            currentEpisodeId = itemId,
         )
 
         readSystemLevels()
@@ -174,6 +179,7 @@ class PlayerActivity : ComponentActivity() {
                     onTranscode = { retry(forceTranscode = true) },
                     onDismissError = { ui = ui.copy(error = null) },
                     onNext = { playNext() },
+                    onSelectEpisode = { playEpisode(it) },
                     onBrightnessDelta = ::applyBrightnessDelta,
                     onVolumeDelta = ::applyVolumeDelta,
                     onSpeedBoost = ::applySpeedBoost,
@@ -583,6 +589,24 @@ class PlayerActivity : ComponentActivity() {
         lifecycleScope.launch { startPlayback(itemId, position, forceTranscode) }
     }
 
+    /** 选集面板里点了某一集：直接切过去，队列指针同步移动。 */
+    private fun playEpisode(id: String) {
+        if (id == currentItemId) {
+            ui = ui.copy(panel = PlayerPanel.NONE)
+            return
+        }
+        if (!PlayQueue.jumpTo(id)) return
+        currentItemId = id
+        nextItemId = PlayQueue.peekNext()
+        ui = ui.copy(
+            error = null,
+            panel = PlayerPanel.NONE,
+            canPlayNext = !nextItemId.isNullOrBlank(),
+            currentEpisodeId = id,
+        )
+        lifecycleScope.launch { startPlayback(id, 0L, false) }
+    }
+
     private fun playNext() {
         val next = PlayQueue.peekNext() ?: nextItemId
         if (next.isNullOrBlank()) {
@@ -591,9 +615,13 @@ class PlayerActivity : ComponentActivity() {
         }
         ui = ui.copy(error = null)
         PlayQueue.advance()
+        currentItemId = next
         lifecycleScope.launch { startPlayback(next, 0L, false) }
         nextItemId = PlayQueue.peekNext()
-        ui = ui.copy(canPlayNext = !nextItemId.isNullOrBlank())
+        ui = ui.copy(
+            canPlayNext = !nextItemId.isNullOrBlank(),
+            currentEpisodeId = next,
+        )
     }
 
     // ------------------------------------------------------------ 手势与旋转

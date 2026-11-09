@@ -219,6 +219,8 @@ class EmbyBackend(override val config: ServerConfig) : MediaBackend {
             favorite = userData?.bool("IsFavorite") ?: false,
             played = userData?.bool("Played") ?: false,
             progress = ((userData?.dbl("PlayedPercentage") ?: 0.0) / 100.0).toFloat(),
+            progressMs = ticksToMs(userData?.long("PlaybackPositionTicks") ?: 0L),
+            durationMs = ticksToMs(o.long("RunTimeTicks")),
             playTargetId = playTarget,
             studio = o.arr("Studios")?.firstOrNull()?.asObj()?.str("Name"),
             premiereDate = o.str("PremiereDate")?.take(10),
@@ -258,6 +260,7 @@ class EmbyBackend(override val config: ServerConfig) : MediaBackend {
             runtimeMinutes = (ticksToMs(o.long("RunTimeTicks")) / 60_000L).toInt().takeIf { it > 0 },
             played = ud?.bool("Played") ?: false,
             progress = ((ud?.dbl("PlayedPercentage") ?: 0.0) / 100.0).toFloat(),
+            progressMs = ticksToMs(ud?.long("PlaybackPositionTicks") ?: 0L),
             airDate = o.str("PremiereDate")?.take(10),
             seriesId = o.str("SeriesId"),
             seriesName = o.str("SeriesName"),
@@ -299,6 +302,7 @@ class EmbyBackend(override val config: ServerConfig) : MediaBackend {
                 runtimeMinutes = (ticksToMs(o.long("RunTimeTicks")) / 60_000L).toInt().takeIf { it > 0 },
                 played = ud?.bool("Played") ?: false,
                 progress = ((ud?.dbl("PlayedPercentage") ?: 0.0) / 100.0).toFloat(),
+                progressMs = ticksToMs(ud?.long("PlaybackPositionTicks") ?: 0L),
                 airDate = o.str("PremiereDate")?.take(10),
                 seriesId = seriesId,
             )
@@ -759,6 +763,8 @@ class EmbyBackend(override val config: ServerConfig) : MediaBackend {
             played = ud?.bool("Played") ?: false,
             year = o.int("ProductionYear"),
             rating = o.dbl("CommunityRating"),
+            progressMs = ticksToMs(ud?.long("PlaybackPositionTicks") ?: 0L),
+            durationMs = ticksToMs(o.long("RunTimeTicks")),
         )
     }
 
