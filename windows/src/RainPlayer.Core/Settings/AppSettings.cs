@@ -26,6 +26,24 @@ public sealed class AppSettings
     public int Volume { get; set; } = 80;
 
     /// <summary>记住窗口大小与位置。</summary>
+    /// <summary>主题 key，见 RainPlayer.App.Themes.ThemeManager。</summary>
+    public string ThemeKey { get; set; } = "midnight";
+
+    /// <summary>毛玻璃效果：半透明面板，让背景隐约透出来。</summary>
+    public bool GlassEffect { get; set; } = true;
+
+    /// <summary>跨服务器聚合搜索。</summary>
+    public bool AggregateSearch { get; set; } = true;
+
+    /// <summary>首页「继续观看」上方的每日推荐轮播。</summary>
+    public bool DailyRecommend { get; set; } = true;
+
+    /// <summary>TMDB v3 API Key。留空则不显示 TMDB 评分。</summary>
+    public string TmdbApiKey { get; set; } = "";
+
+    /// <summary>豆瓣评分（第三方聚合接口，失败静默隐藏）。</summary>
+    public bool DoubanRating { get; set; } = true;
+
     public double WindowWidth { get; set; } = 1280;
     public double WindowHeight { get; set; } = 800;
     public bool WindowMaximized { get; set; }
@@ -54,6 +72,9 @@ public sealed class AppSettings
             // 老配置可能没有 DeviceId
             foreach (var server in settings.Servers.Where(s => string.IsNullOrEmpty(s.DeviceId)))
                 server.DeviceId = NewDeviceId();
+
+            // 老配置只有单 Url / 单 Token，折叠成线路与账号目录
+            foreach (var server in settings.Servers) server.Normalize();
             return settings;
         }
         catch
@@ -90,6 +111,7 @@ public sealed class AppSettings
 
     public void UpsertServer(ServerConfig config)
     {
+        config = config.Normalize();
         var index = Servers.FindIndex(s => s.Id == config.Id);
         if (index >= 0) Servers[index] = config;
         else Servers.Add(config);

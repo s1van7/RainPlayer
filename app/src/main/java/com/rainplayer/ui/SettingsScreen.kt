@@ -11,6 +11,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -55,6 +57,12 @@ fun SettingsScreen(
     var longPressSpeed by remember { mutableStateOf(prefs.longPressSpeedEnabled) }
     var speedValue by remember { mutableStateOf(prefs.longPressSpeed) }
     var autoRotate by remember { mutableStateOf(prefs.autoRotate) }
+    var theme by remember { mutableStateOf(com.rainplayer.ui.theme.ThemeState.theme) }
+    var glass by remember { mutableStateOf(com.rainplayer.ui.theme.ThemeState.glass) }
+    var aggregate by remember { mutableStateOf(prefs.aggregateSearch) }
+    var daily by remember { mutableStateOf(prefs.dailyRecommend) }
+    var douban by remember { mutableStateOf(prefs.doubanRating) }
+    var tmdbKey by remember { mutableStateOf(prefs.tmdbApiKey) }
     val capabilities = remember { PlayerCapabilities.detect(Graph.app) }
 
     Column(
@@ -65,6 +73,115 @@ fun SettingsScreen(
     ) {
         Text("设置", color = RainPlayerText, fontSize = 22.sp, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(18.dp))
+
+        Section("外观") {
+            Text("主题", color = RainPlayerText, fontSize = 13.sp)
+            Spacer(Modifier.height(8.dp))
+            com.rainplayer.ui.theme.AppTheme.entries.chunked(3).forEach { rowThemes ->
+                Row(
+                    Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    rowThemes.forEach { item ->
+                        val selected = item == theme
+                        Row(
+                            Modifier
+                                .weight(1f)
+                                .background(
+                                    if (selected) item.palette.accent.copy(alpha = 0.22f) else RainPlayerSurface,
+                                    RoundedCornerShape(10.dp),
+                                )
+                                .clickable {
+                                    theme = item
+                                    com.rainplayer.ui.theme.ThemeState.theme = item
+                                    prefs.themeKey = item.key
+                                }
+                                .padding(horizontal = 10.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Box(
+                                Modifier
+                                    .size(12.dp)
+                                    .background(item.palette.accent, RoundedCornerShape(6.dp))
+                            )
+                            Spacer(Modifier.width(7.dp))
+                            Text(
+                                item.displayName,
+                                color = if (selected) item.palette.accent else RainPlayerText,
+                                fontSize = 11.sp,
+                                maxLines = 1,
+                            )
+                        }
+                    }
+                    repeat(3 - rowThemes.size) { Spacer(Modifier.weight(1f)) }
+                }
+            }
+            Spacer(Modifier.height(4.dp))
+            ToggleRow(
+                title = "毛玻璃效果",
+                desc = "半透明磨砂面板；低配设备关掉可以更流畅",
+                checked = glass,
+            ) {
+                glass = it
+                com.rainplayer.ui.theme.ThemeState.glass = it
+                prefs.glassEffect = it
+            }
+        }
+
+        Section("内容与评分") {
+            ToggleRow(
+                title = "聚合搜索",
+                desc = "同时搜索所有已添加的服务器，结果合并显示",
+                checked = aggregate,
+            ) {
+                aggregate = it
+                prefs.aggregateSearch = it
+            }
+            ToggleRow(
+                title = "每日推荐",
+                desc = "首页「继续观看」上方显示轮播推荐，每天自动换一批",
+                checked = daily,
+            ) {
+                daily = it
+                prefs.dailyRecommend = it
+            }
+            ToggleRow(
+                title = "豆瓣评分",
+                desc = "通过第三方聚合接口获取；拿不到时自动隐藏，不影响详情页",
+                checked = douban,
+            ) {
+                douban = it
+                prefs.doubanRating = it
+                com.rainplayer.data.RatingsRepo.clearCache()
+            }
+            Spacer(Modifier.height(8.dp))
+            Text("TMDB API Key", color = RainPlayerText, fontSize = 13.sp)
+            Spacer(Modifier.height(2.dp))
+            Text(
+                "在 themoviedb.org 免费申请 v3 Key 后填入；留空则不显示 TMDB 评分",
+                color = RainPlayerTextDim,
+                fontSize = 10.sp,
+            )
+            Spacer(Modifier.height(6.dp))
+            androidx.compose.material3.OutlinedTextField(
+                value = tmdbKey,
+                onValueChange = {
+                    tmdbKey = it
+                    prefs.tmdbApiKey = it.trim()
+                    com.rainplayer.data.RatingsRepo.clearCache()
+                },
+                singleLine = true,
+                placeholder = { Text("粘贴 API Key", color = Color(0x55FFFFFF), fontSize = 12.sp) },
+                colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
+                    focusedTextColor = RainPlayerText,
+                    unfocusedTextColor = RainPlayerText,
+                    focusedBorderColor = RainPlayerAccent,
+                    unfocusedBorderColor = Color(0x22FFFFFF),
+                    cursorColor = RainPlayerAccent,
+                ),
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
 
         Section("服务器") {
             session.backend?.let { backend ->

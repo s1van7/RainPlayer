@@ -19,28 +19,194 @@ public static class ServerKindExtensions
     };
 }
 
-/// <summary>一台已登录的服务器配置。</summary>
+/// <summary>一台服务器的一条线路（内网 / 外网 / 中转）。</summary>
+public sealed class ServerLine
+{
+    public string Id { get; set; } = "";
+    public string Name { get; set; } = "";
+    public string Url { get; set; } = "";
+
+    public string DisplayName => string.IsNullOrWhiteSpace(Name) ? Url : Name;
+
+    public ServerLine Clone() => new() { Id = Id, Name = Name, Url = Url };
+}
+
+/// <summary>一台服务器上的一个登录账号。</summary>
+public sealed class ServerUser
+{
+    public string Id { get; set; } = "";
+    public string Username { get; set; } = "";
+    public string Token { get; set; } = "";
+    public string UserId { get; set; } = "";
+
+    public string DisplayName => string.IsNullOrWhiteSpace(Username) ? "账号" : Username;
+
+    public ServerUser Clone() => new() { Id = Id, Username = Username, Token = Token, UserId = UserId };
+}
+
+/// <summary>
+/// 一台已登录的服务器配置。
+///
+/// <see cref="Lines"/> / <see cref="Users"/> 是目录，<see cref="Url"/> / <see cref="Token"/> /
+/// <see cref="UserId"/> 是当前生效值，由 <see cref="ActiveLineId"/> / <see cref="ActiveUserId"/> 指向的条目折叠而来。
+/// 这样后端实现继续直接读 Url / Token，不必每次请求都查表。
+/// </summary>
 public sealed class ServerConfig
 {
     public string Id { get; set; } = "";
     public ServerKind Kind { get; set; } = ServerKind.Emby;
     public string Name { get; set; } = "";
+
+    /// <summary>自定义图标：http(s) 图片地址，或 emoji / 单个汉字。</summary>
+    public string IconUrl { get; set; } = "";
+
+    public List<ServerLine> Lines { get; set; } = new();
+    public List<ServerUser> Users { get; set; } = new();
+    public string ActiveLineId { get; set; } = "";
+    public string ActiveUserId { get; set; } = "";
+
+    // 当前生效值（由 Lines / Users 折叠得到）
     public string Url { get; set; } = "";
     public string Username { get; set; } = "";
     public string Token { get; set; } = "";
     public string UserId { get; set; } = "";
     public string DeviceId { get; set; } = "";
 
+    /// <summary>首页隐藏的媒体库 id。</summary>
+    public List<string> HiddenLibraries { get; set; } = new();
+
+    /// <summary>首页媒体库显示顺序（存 id）。</summary>
+    public List<string> LibraryOrder { get; set; } = new();
+
+    public ServerLine? ActiveLine =>
+        Lines.FirstOrDefault(l => l.Id == ActiveLineId) ?? Lines.FirstOrDefault();
+
+    public ServerUser? ActiveUser =>
+        Users.FirstOrDefault(u => u.Id == ActiveUserId) ?? Users.FirstOrDefault();
+
+    /// <summary>兼容老配置：把旧的单 Url / 单 Token 折叠成目录。幂等。</summary>
+    public ServerConfig Normalize()
+    {
+        if (string.IsNullOrEmpty(Id)) return this;
+
+        if (Lines.Count == 0 && !string.IsNullOrWhiteSpace(Url))
+            Lines.Add(new ServerLine { Id = "line-0", Name = "主线路", Url = Url });
+
+        if (Users.Count == 0 && !string.IsNullOrWhiteSpace(Token))
+            Users.Add(new ServerUser { Id = "user-0", Username = Username, Token = Token, UserId = UserId });
+
+        var line = Lines.FirstOrDefault(l => l.Id == ActiveLineId) ?? Lines.FirstOrDefault();
+        var user = Users.FirstOrDefault(u => u.Id == ActiveUserId) ?? Users.FirstOrDefault();
+
+        ActiveLineId = line?.Id ?? "";
+        ActiveUserId = user?.Id ?? "";
+        if (line != null) Url = line.Url;
+        if (user != null)
+        {
+            Username = user.Username;
+            Token = user.Token;
+            UserId = user.UserId;
+        }
+        return this;
+    }
+
+    public ServerConfig WithLine(string lineId)
+    {
+        var line = Lines.FirstOrDefault(l => l.Id == lineId);
+        if (line == null) return this;
+        var copy = Clone();
+        copy.ActiveLineId = line.Id;
+        copy.Url = line.Url;
+        return copy;
+    }
+
+    public ServerConfig WithUser(string userId)
+    {
+        var user = Users.FirstOrDefault(u => u.Id == userId);
+        if (user == null) return this;
+        var copy = Clone();
+        copy.ActiveUserId = user.Id;
+        copy.Username = user.Username;
+        copy.Token = user.Token;
+        copy.UserId = user.UserId;
+        return copy;
+    }
+
+    public void AddLine(ServerLine line)
+    {
+        Lines.Add(line);
+        if (string.IsNullOrEmpty(ActiveLineId)) ActiveLineId = line.Id;
+        if (ActiveLineId == line.Id) Url = line.Url;
+    }
+
+    public void RemoveLine(string lineId)
+    {
+        if (Lines.Count <= 1) return;
+        Lines.RemoveAll(l => l.Id == lineId);
+        if (ActiveLineId == lineId) ActiveLineId = Lines[0].Id;
+        var line = ActiveLine;
+        if (line != null) Url = line.Url;
+    }
+
+    public void AddUser(ServerUser user)
+    {
+        Users.RemoveAll(u => u.Id == user.Id);
+        Users.Add(user);
+        if (string.IsNullOrEmpty(ActiveUserId)) ActiveUserId = user.Id;
+    }
+
+    public void RemoveUser(string userId)
+    {
+        if (Users.Count <= 1) return;
+        Users.RemoveAll(u => u.Id == userId);
+        if (ActiveUserId == userId) ActiveUserId = Users[0].Id;
+        var user = ActiveUser;
+        if (user != null)
+        {
+            Username = user.Username;
+            Token = user.Token;
+            UserId = user.UserId;
+        }
+    }
+
+    /// <summary>例：Emby · 2 条线路 · 2 个账号</summary>
+    public string Summary
+    {
+        get
+        {
+            var parts = new List<string> { Kind.DisplayName() };
+            if (Lines.Count > 1) parts.Add($"{Lines.Count} 条线路");
+            if (Users.Count > 1) parts.Add($"{Users.Count} 个账号");
+            return string.Join(" · ", parts);
+        }
+    }
+
+    public bool IconIsUrl =>
+        IconUrl.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
+        IconUrl.StartsWith("https://", StringComparison.OrdinalIgnoreCase);
+
+    public string IconText =>
+        !IconIsUrl && !string.IsNullOrWhiteSpace(IconUrl)
+            ? IconUrl
+            : (string.IsNullOrEmpty(Name) ? "R" : Name[..1].ToUpperInvariant());
+
     public ServerConfig Clone() => new()
     {
         Id = Id,
         Kind = Kind,
         Name = Name,
+        IconUrl = IconUrl,
+        Lines = Lines.Select(l => l.Clone()).ToList(),
+        Users = Users.Select(u => u.Clone()).ToList(),
+        ActiveLineId = ActiveLineId,
+        ActiveUserId = ActiveUserId,
         Url = Url,
         Username = Username,
         Token = Token,
         UserId = UserId,
         DeviceId = DeviceId,
+        HiddenLibraries = new List<string>(HiddenLibraries),
+        LibraryOrder = new List<string>(LibraryOrder),
     };
 }
 
@@ -68,6 +234,11 @@ public sealed class MediaCard
     public bool Played { get; set; }
     public int? Year { get; set; }
     public double? Rating { get; set; }
+
+    /// <summary>聚合搜索时标注来源服务器；单服务器场景为 null。</summary>
+    public string? ServerId { get; set; }
+    public string? AccountId { get; set; }
+    public string? ServerName { get; set; }
 }
 
 public sealed class Library
@@ -102,6 +273,21 @@ public sealed class Episode
     public int? RuntimeMinutes { get; set; }
     public bool Played { get; set; }
     public double Progress { get; set; }
+    public string? AirDate { get; set; }
+    public string? SeriesId { get; set; }
+    public string? SeriesName { get; set; }
+    public string? BackdropUrl { get; set; }
+
+    /// <summary>例：S02E05 · 42 分钟</summary>
+    public string Label
+    {
+        get
+        {
+            var text = $"S{SeasonIndex:00}E{Index:00}";
+            if (RuntimeMinutes is > 0) text += $" · {RuntimeMinutes} 分钟";
+            return text;
+        }
+    }
 }
 
 public sealed class MediaDetail
@@ -128,6 +314,23 @@ public sealed class MediaDetail
     /// <summary>剧集类条目直接开播时使用的第一个可播放条目。</summary>
     public string PlayTargetId { get; set; } = "";
     public string? Studio { get; set; }
+    public string? PremiereDate { get; set; }
+    public double? CommunityRating { get; set; }
+    public double? CriticRating { get; set; }
+    public List<MediaCard> Similar { get; set; } = new();
+}
+
+/// <summary>外部评分聚合结果。所有字段可空，哪个源挂了只影响自己那一项。</summary>
+public sealed class ExternalRatings
+{
+    public double? Tmdb { get; set; }
+    public int? TmdbVotes { get; set; }
+    public double? Douban { get; set; }
+    public int? DoubanVotes { get; set; }
+    public int? TmdbId { get; set; }
+    public string? DoubanId { get; set; }
+
+    public bool IsEmpty => Tmdb == null && Douban == null;
 }
 
 public sealed class PagedItems
@@ -142,6 +345,7 @@ public enum RowKind
     Continue,
     Latest,
     Library,
+    Daily,
 }
 
 public sealed class HomeRow

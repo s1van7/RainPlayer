@@ -23,6 +23,27 @@ public interface IMediaBackend
 
     Task<MediaDetail> GetDetailAsync(string itemId, CancellationToken ct = default);
 
+    /// <summary>「更多类似作品」。服务器不支持时返回空列表，UI 自动隐藏该区块。</summary>
+    Task<List<MediaCard>> GetSimilarAsync(string itemId, int limit = 12, CancellationToken ct = default)
+        => Task.FromResult(new List<MediaCard>());
+
+    /// <summary>单集详情。默认用 GetDetailAsync 兜底。</summary>
+    async Task<Episode> GetEpisodeAsync(string itemId, CancellationToken ct = default)
+    {
+        var d = await GetDetailAsync(itemId, ct).ConfigureAwait(false);
+        return new Episode
+        {
+            Id = d.Id,
+            Title = d.Title,
+            Overview = d.Overview,
+            ImageUrl = d.PosterUrl,
+            BackdropUrl = d.BackdropUrl,
+            RuntimeMinutes = d.RuntimeMinutes,
+            Played = d.Played,
+            Progress = d.Progress,
+        };
+    }
+
     Task<List<Season>> GetSeasonsAsync(string seriesId, CancellationToken ct = default);
 
     Task<List<Episode>> GetEpisodesAsync(string seriesId, string seasonId, CancellationToken ct = default);

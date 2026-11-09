@@ -70,7 +70,7 @@ fun LoginScreen(
     Box(
         Modifier
             .fillMaxSize()
-            .background(Color(0xFF0B0D12))
+            .background(com.rainplayer.ui.theme.rainPalette.bg)
             .verticalScroll(rememberScrollState()),
         contentAlignment = Alignment.TopCenter,
     ) {

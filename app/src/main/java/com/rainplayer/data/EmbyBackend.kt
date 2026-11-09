@@ -57,6 +57,10 @@ class EmbyBackend(override val config: ServerConfig) : MediaBackend {
 
     private fun url(path: String): String = if (path.startsWith("http")) path else base + path
 
+    override fun refreshAuth() {
+        Http.authInterceptor.update(base, tokenHeaders())
+    }
+
     private fun q(value: String): String = URLEncoder.encode(value, "UTF-8")
 
     // ------------------------------------------------------------------ 登录
@@ -112,7 +116,7 @@ class EmbyBackend(override val config: ServerConfig) : MediaBackend {
         }
 
         val libs = runCatching { libraries() }.getOrDefault(emptyList())
-        libs.take(6).forEach { library ->
+        libs.take(12).forEach { library ->
             runCatching {
                 val text = Http.getText(
                     url(
@@ -166,7 +170,7 @@ class EmbyBackend(override val config: ServerConfig) : MediaBackend {
     override suspend fun detail(itemId: String): MediaDetail {
         val fields = "Overview,People,Genres,ProductionYear,RunTimeTicks,CommunityRating," +
             "OfficialRating,MediaSources,MediaStreams,Taglines,UserData,BackdropImageTags,ImageTags," +
-            "PrimaryImageAspectRatio,Studios,ChildCount"
+            "PrimaryImageAspectRatio,Studios,ChildCount,PremiereDate,CriticRating"
         val text = Http.getText(url("/Users/$userId/Items/$itemId?Fields=$fields"), tokenHeaders())
         val o = J.obj(text) ?: error("无法获取详情")
         val type = parseType(o.str("Type"))
@@ -217,6 +221,46 @@ class EmbyBackend(override val config: ServerConfig) : MediaBackend {
             progress = ((userData?.dbl("PlayedPercentage") ?: 0.0) / 100.0).toFloat(),
             playTargetId = playTarget,
             studio = o.arr("Studios")?.firstOrNull()?.asObj()?.str("Name"),
+            premiereDate = o.str("PremiereDate")?.take(10),
+            communityRating = o.dbl("CommunityRating"),
+            criticRating = o.dbl("CriticRating"),
+        )
+    }
+
+    /** 「更多类似作品」：Emby / Jellyfin 都提供 /Items/{id}/Similar。 */
+    override suspend fun similar(itemId: String, limit: Int): List<MediaCard> {
+        val text = Http.getText(
+            url(
+                "/Items/$itemId/Similar?UserId=$userId&Limit=$limit" +
+                    "&Fields=PrimaryImageTag,ProductionYear,RunTimeTicks,UserData,BackdropImageTags,CommunityRating" +
+                    "&ImageTypeLimit=1&EnableImageTypes=Primary,Backdrop"
+            ),
+            tokenHeaders()
+        )
+        return J.obj(text)?.arr("Items").orEmpty().mapNotNull { mapCard(it.asObj()) }
+    }
+
+    /** 单集详情：补上所属剧集、播出日期、剧照。 */
+    override suspend fun episode(itemId: String): Episode {
+        val fields = "Overview,RunTimeTicks,UserData,ImageTags,BackdropImageTags,ProductionYear," +
+            "PremiereDate,IndexNumber,ParentIndexNumber,SeriesId,SeriesName,AirTime"
+        val text = Http.getText(url("/Users/$userId/Items/$itemId?Fields=$fields"), tokenHeaders())
+        val o = J.obj(text) ?: error("无法获取单集详情")
+        val ud = o.obj("UserData")
+        return Episode(
+            id = itemId,
+            title = o.strOr("Name", "未命名"),
+            index = o.int("IndexNumber") ?: 0,
+            seasonIndex = o.int("ParentIndexNumber") ?: 0,
+            overview = o.str("Overview"),
+            imageUrl = primaryImage(itemId, o),
+            backdropUrl = backdropImage(itemId, o),
+            runtimeMinutes = (ticksToMs(o.long("RunTimeTicks")) / 60_000L).toInt().takeIf { it > 0 },
+            played = ud?.bool("Played") ?: false,
+            progress = ((ud?.dbl("PlayedPercentage") ?: 0.0) / 100.0).toFloat(),
+            airDate = o.str("PremiereDate")?.take(10),
+            seriesId = o.str("SeriesId"),
+            seriesName = o.str("SeriesName"),
         )
     }
 
@@ -255,6 +299,8 @@ class EmbyBackend(override val config: ServerConfig) : MediaBackend {
                 runtimeMinutes = (ticksToMs(o.long("RunTimeTicks")) / 60_000L).toInt().takeIf { it > 0 },
                 played = ud?.bool("Played") ?: false,
                 progress = ((ud?.dbl("PlayedPercentage") ?: 0.0) / 100.0).toFloat(),
+                airDate = o.str("PremiereDate")?.take(10),
+                seriesId = seriesId,
             )
         }
     }
@@ -466,7 +512,12 @@ class EmbyBackend(override val config: ServerConfig) : MediaBackend {
             url = playUrl,
             headers = tokenHeaders(),
             isHls = isHls,
-            startPositionMs = if (startMs > 0) startMs else resumeMs,
+            startPositionMs = when {
+                startMs > 0 -> startMs
+                // -1 是「强制从头播放」的哨兵值，详情页的「从头播放」按钮用它
+                startMs < 0 -> 0L
+                else -> resumeMs
+            },
             durationMs = durationMs,
             videoTracks = videoStream?.let {
                 listOf(

@@ -31,6 +31,7 @@ public partial class PlayerWindow : Window
     private readonly int? _audioIndex;
     private readonly int? _subtitleIndex;
     private readonly bool _burnSubtitle;
+    private readonly long _initialStartMs;
     private bool _stopReported;
 
     public PlayerWindow(
@@ -41,7 +42,8 @@ public partial class PlayerWindow : Window
         string? sourceId = null,
         int? audioIndex = null,
         int? subtitleIndex = null,
-        bool burnSubtitle = false)
+        bool burnSubtitle = false,
+        long initialStartMs = 0)
     {
         InitializeComponent();
 
@@ -53,6 +55,7 @@ public partial class PlayerWindow : Window
         _audioIndex = audioIndex;
         _subtitleIndex = subtitleIndex;
         _burnSubtitle = burnSubtitle;
+        _initialStartMs = initialStartMs;
 
         TitleText.Text = title;
         SubtitleText.Text = "";
@@ -77,7 +80,7 @@ public partial class PlayerWindow : Window
             TryInitializeMpv();
             UpdatePopupLayout();
             ShowControls();
-            await LoadCurrentAsync();
+            await LoadCurrentAsync(_initialStartMs);
         };
 
         SizeChanged += (_, _) => UpdatePopupLayout();

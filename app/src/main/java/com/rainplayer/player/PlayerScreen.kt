@@ -438,7 +438,12 @@ private fun PanelOverlay(
             modifier = Modifier
                 .width(380.dp)
                 .fillMaxHeight()
-                .background(Color(0xF2151922))
+                // 毛玻璃侧栏：半透明面板 + 左侧一道亮边，让底下的画面隐约透出来
+                .background(
+                    com.rainplayer.ui.theme.rainPalette.surface.copy(
+                        alpha = if (com.rainplayer.ui.theme.ThemeState.glass) 0.82f else 1f
+                    )
+                )
                 .padding(20.dp)
                 .clickable(enabled = false) {},
         ) {

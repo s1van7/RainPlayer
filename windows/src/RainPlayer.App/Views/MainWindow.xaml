@@ -24,23 +24,45 @@
                     <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
 
-                <!-- 品牌 -->
-                <StackPanel Grid.Row="0" Margin="22,26,22,18">
-                    <TextBlock Text="RainPlayer" FontSize="21" FontWeight="Bold" />
-                    <TextBlock x:Name="ServerText" Style="{StaticResource SubText}" Margin="0,4,0,0"
-                               TextTrimming="CharacterEllipsis" />
-                </StackPanel>
+                <!-- 左上角：服务器名称，点开就是服务器 / 媒体库入口 -->
+                <Button x:Name="ServerButton" Grid.Row="0" Margin="14,20,14,16"
+                        Style="{StaticResource GhostButton}" HorizontalContentAlignment="Stretch"
+                        Padding="8" Click="OnServerButtonClick">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+
+                        <Border Grid.Column="0" Width="34" Height="34" CornerRadius="10"
+                                Background="{StaticResource AccentBrush}" Margin="0,0,10,0">
+                            <Grid>
+                                <TextBlock x:Name="ServerIconText" Text="R" FontSize="15" FontWeight="Bold"
+                                           Foreground="Black" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                <Image x:Name="ServerIconImage" Stretch="UniformToFill" Visibility="Collapsed" />
+                            </Grid>
+                        </Border>
+
+                        <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                            <TextBlock x:Name="ServerText" FontSize="14" FontWeight="SemiBold"
+                                       TextTrimming="CharacterEllipsis" />
+                            <TextBlock x:Name="ServerSubText" Style="{StaticResource SubText}" FontSize="10"
+                                       TextTrimming="CharacterEllipsis" Margin="0,2,0,0" />
+                        </StackPanel>
+
+                        <TextBlock Grid.Column="2" Text="▾" Foreground="{StaticResource SubTextBrush}"
+                                   VerticalAlignment="Center" Margin="6,0,0,0" />
+                    </Grid>
+                </Button>
 
                 <!-- 导航项 -->
                 <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Margin="12,0">
                     <StackPanel>
                         <RadioButton x:Name="HomeNav" Content="首页" Style="{StaticResource NavButton}"
                                      IsChecked="True" Margin="0,0,0,4" Checked="OnHomeNav" />
-
-                        <TextBlock Text="媒体库" Style="{StaticResource SubText}" Margin="14,16,0,8"
-                                   FontSize="11" Foreground="{StaticResource FaintTextBrush}" />
-
-                        <StackPanel x:Name="LibraryNavPanel" />
+                        <RadioButton x:Name="LibrariesNav" Content="媒体库" Style="{StaticResource NavButton}"
+                                     Margin="0,0,0,4" Checked="OnLibrariesNav" />
                     </StackPanel>
                 </ScrollViewer>
 

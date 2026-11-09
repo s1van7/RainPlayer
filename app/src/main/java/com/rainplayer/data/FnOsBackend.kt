@@ -42,6 +42,10 @@ class FnOsBackend(override val config: ServerConfig) : MediaBackend {
         Http.authInterceptor.update(base, staticHeaders())
     }
 
+    override fun refreshAuth() {
+        Http.authInterceptor.update(base, staticHeaders())
+    }
+
     private fun staticHeaders(): Map<String, String> = buildMap {
         put("Accept", "application/json")
         put("x-trim-client", "web")
@@ -157,7 +161,7 @@ class FnOsBackend(override val config: ServerConfig) : MediaBackend {
 
         runCatching {
             val libs = libraries()
-            libs.take(6).forEach { library ->
+            libs.take(12).forEach { library ->
                 val page = runCatching { items(library.id, 0, 18) }.getOrNull()
                 if (page != null && page.items.isNotEmpty()) {
                     rows += HomeRow(library.name, page.items, RowKind.LIBRARY, library.id)
@@ -451,7 +455,12 @@ class FnOsBackend(override val config: ServerConfig) : MediaBackend {
             url = playUrl,
             headers = staticHeaders(),
             isHls = isHls,
-            startPositionMs = resumeSec * 1000L,
+            startPositionMs = when {
+                startMs > 0 -> startMs
+                // -1 是「强制从头播放」的哨兵值
+                startMs < 0 -> 0L
+                else -> resumeSec * 1000L
+            },
             durationMs = durationSec * 1000L,
             videoTracks = videoStream?.let {
                 listOf(

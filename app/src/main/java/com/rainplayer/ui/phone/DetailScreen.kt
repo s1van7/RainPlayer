@@ -2,6 +2,7 @@ package com.rainplayer.ui.phone
 
 import android.content.Intent
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -62,10 +63,12 @@ import com.rainplayer.ui.common.RainPlayerButton
 import com.rainplayer.ui.common.LoadingView
 import com.rainplayer.ui.common.MetaChip
 import com.rainplayer.ui.common.imageRequest
+import com.rainplayer.ui.theme.GlassSurface
 import com.rainplayer.ui.theme.RainPlayerAccent
 import com.rainplayer.ui.theme.RainPlayerSurface
 import com.rainplayer.ui.theme.RainPlayerText
 import com.rainplayer.ui.theme.RainPlayerTextDim
+import com.rainplayer.ui.theme.scrimBrush
 import kotlinx.coroutines.launch
 
 @Composable
@@ -75,6 +78,7 @@ fun DetailScreen(
     fallbackTitle: String,
     onBack: () -> Unit,
     onOpenItem: (com.rainplayer.data.MediaCard) -> Unit,
+    onOpenEpisode: (Episode) -> Unit = {},
 ) {
     val backend = session.backend
     val context = LocalContext.current
@@ -87,6 +91,8 @@ fun DetailScreen(
     var episodes by remember { mutableStateOf<List<Episode>>(emptyList()) }
     var favorite by remember { mutableStateOf(false) }
     var played by remember { mutableStateOf(false) }
+    var similar by remember { mutableStateOf<List<com.rainplayer.data.MediaCard>>(emptyList()) }
+    var ratings by remember { mutableStateOf(com.rainplayer.data.ExternalRatings()) }
 
     // 版本 / 音轨 / 字幕 选择
     var options by remember { mutableStateOf<PlaybackOptions?>(null) }
@@ -109,6 +115,25 @@ fun DetailScreen(
             }
             .onFailure { error = it.message }
         loading = false
+    }
+
+    // 更多类似作品：服务器不支持就静默留空
+    LaunchedEffect(itemId, backend) {
+        val b = backend ?: return@LaunchedEffect
+        similar = runCatching { b.similar(itemId, 14) }.getOrDefault(emptyList())
+    }
+
+    // TMDB / 豆瓣评分：两个源都失败就整块隐藏，绝不阻塞页面
+    LaunchedEffect(itemId, detail?.title) {
+        val d = detail ?: return@LaunchedEffect
+        ratings = com.rainplayer.data.RatingsRepo.fetch(
+            title = d.title,
+            originalTitle = d.originalTitle,
+            year = d.year,
+            isTv = d.type == MediaType.SERIES,
+            tmdbKey = com.rainplayer.Graph.prefs.tmdbApiKey,
+            doubanEnabled = com.rainplayer.Graph.prefs.doubanRating,
+        )
     }
 
     // 拉取版本/音轨/字幕清单；换版本后重新拉一次该版本的轨道
@@ -193,20 +218,14 @@ fun DetailScreen(
                     modifier = Modifier.fillMaxSize(),
                 ) {
                     item {
-                        Box(Modifier.fillMaxWidth().height(240.dp)) {
+                        Box(Modifier.fillMaxWidth().height(260.dp)) {
                             AsyncImage(
                                 model = imageRequest(d.backdropUrl ?: d.posterUrl),
                                 contentDescription = null,
                                 contentScale = ContentScale.Crop,
                                 modifier = Modifier.fillMaxSize(),
                             )
-                            Box(
-                                Modifier.fillMaxSize().background(
-                                    Brush.verticalGradient(
-                                        listOf(Color(0x66000000), Color(0xCC0B0D12), Color(0xFF0B0D12))
-                                    )
-                                )
-                            )
+                            Box(Modifier.fillMaxSize().background(scrimBrush(1f)))
                             IconButton(
                                 onClick = onBack,
                                 modifier = Modifier.padding(8.dp).align(Alignment.TopStart),
@@ -356,6 +375,60 @@ fun DetailScreen(
                         }
                     }
 
+                    // 评分：TMDB / 豆瓣。两个源都拿不到就整块不渲染。
+                    if (!ratings.isEmpty) {
+                        item {
+                            Row(
+                                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
+                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            ) {
+                                ratings.tmdb?.let { RatingBadge("TMDB", it, ratings.tmdbVotes) }
+                                ratings.douban?.let { RatingBadge("豆瓣", it, ratings.doubanVotes) }
+                            }
+                        }
+                    }
+
+                    // 媒体信息
+                    item {
+                        val rows = buildList {
+                            d.premiereDate?.let { add("上映日期" to it) }
+                            d.studio?.takeIf { it.isNotBlank() }?.let { add("出品" to it) }
+                            d.runtimeMinutes?.let { add("片长" to "$it 分钟") }
+                            d.officialRating?.let { add("分级" to it) }
+                            d.genres.takeIf { it.isNotEmpty() }?.let { add("类型" to it.joinToString(" / ")) }
+                            options?.versions?.takeIf { it.isNotEmpty() }?.let { vs ->
+                                add("版本" to vs.joinToString("、") { it.name })
+                            }
+                        }
+                        if (rows.isNotEmpty()) {
+                            GlassSurface(
+                                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                                shape = RoundedCornerShape(14.dp),
+                            ) {
+                                Column(Modifier.padding(14.dp)) {
+                                    Text(
+                                        "媒体信息",
+                                        color = RainPlayerText,
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                    )
+                                    Spacer(Modifier.height(8.dp))
+                                    rows.forEach { (k, v) ->
+                                        Row(Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
+                                            Text(
+                                                k,
+                                                color = RainPlayerTextDim,
+                                                fontSize = 11.sp,
+                                                modifier = Modifier.width(72.dp),
+                                            )
+                                            Text(v, color = RainPlayerText, fontSize = 11.sp)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     item {
                         Text(
                             d.overview ?: "暂无简介",
@@ -393,8 +466,29 @@ fun DetailScreen(
                     }
 
                     items(episodes, key = { it.id }) { ep ->
-                        EpisodeRow(ep, d.title) {
-                            startPlayback(ep.id, "第 ${ep.seasonIndex} 季 · 第 ${ep.index} 集")
+                        EpisodeRow(ep, d.title) { onOpenEpisode(ep) }
+                    }
+
+                    // 更多类似作品
+                    if (similar.isNotEmpty()) {
+                        item {
+                            Column(Modifier.padding(top = 8.dp)) {
+                                Text(
+                                    "更多类似作品",
+                                    color = RainPlayerText,
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    modifier = Modifier.padding(16.dp),
+                                )
+                                LazyRow(
+                                    contentPadding = PaddingValues(horizontal = 16.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                ) {
+                                    items(similar, key = { it.id }) { card ->
+                                        com.rainplayer.ui.common.PosterCard(card, 108.dp) { onOpenItem(card) }
+                                    }
+                                }
+                            }
                         }
                     }
 
@@ -448,6 +542,36 @@ fun DetailScreen(
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun RatingBadge(source: String, score: Double, votes: Int?) {
+    val p = com.rainplayer.ui.theme.rainPalette
+    Row(
+        Modifier
+            .clip(RoundedCornerShape(10.dp))
+            .background(p.surface.copy(alpha = 0.6f))
+            .border(1.dp, com.rainplayer.ui.theme.RainPlayerGold.copy(alpha = 0.35f), RoundedCornerShape(10.dp))
+            .padding(horizontal = 12.dp, vertical = 7.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(source, color = RainPlayerTextDim, fontSize = 10.sp)
+        Spacer(Modifier.width(8.dp))
+        Text(
+            "%.1f".format(score),
+            color = com.rainplayer.ui.theme.RainPlayerGold,
+            fontSize = 16.sp,
+            fontWeight = FontWeight.Bold,
+        )
+        votes?.takeIf { it > 0 }?.let {
+            Spacer(Modifier.width(6.dp))
+            Text(
+                if (it >= 10_000) "${it / 10_000}万" else "$it",
+                color = RainPlayerTextDim,
+                fontSize = 9.sp,
+            )
         }
     }
 }

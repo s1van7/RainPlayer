@@ -35,10 +35,17 @@ class RotationController(
 
     override fun onOrientationChanged(orientation: Int) {
         if (orientation == ORIENTATION_UNKNOWN) return
+        /*
+         * OrientationEventListener 给的度数对应的是「屏幕内容需要旋转的角度」，
+         * 与 SCREEN_ORIENTATION_* 的对应关系正好和直觉相反：
+         *   90°（设备逆时针转 90°，顶部朝左）  -> REVERSE_LANDSCAPE
+         *   270°（设备顺时针转 90°，顶部朝右） -> LANDSCAPE
+         * 之前这里写反了，表现就是横屏方向和重力方向相反。
+         */
         val target = when (orientation) {
-            in 45..134 -> ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
-            in 135..224 -> ActivityInfo.SCREEN_ORIENTATION_REVERSE_LANDSCAPE
-            in 225..314 -> ActivityInfo.SCREEN_ORIENTATION_REVERSE_LANDSCAPE
+            in 45..134 -> ActivityInfo.SCREEN_ORIENTATION_REVERSE_LANDSCAPE
+            in 135..224 -> ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+            in 225..314 -> ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
             else -> ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
         }
         if (target == current) {

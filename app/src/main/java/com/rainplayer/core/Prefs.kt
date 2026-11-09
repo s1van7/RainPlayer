@@ -124,6 +124,42 @@ class Prefs(context: Context) {
         get() = sp.getString("last_library", null)
         set(v) = sp.edit().putString("last_library", v).apply()
 
+    // ---- 外观 ----
+
+    /** 主题 key，见 [com.rainplayer.ui.theme.AppTheme]。 */
+    var themeKey: String
+        get() = sp.getString("theme_key", "midnight") ?: "midnight"
+        set(v) = sp.edit().putString("theme_key", v).apply()
+
+    /** 毛玻璃效果总开关。 */
+    var glassEffect: Boolean
+        get() = sp.getBoolean("glass_effect", true)
+        set(v) = sp.edit().putBoolean("glass_effect", v).apply()
+
+    // ---- 聚合与推荐 ----
+
+    /** 跨服务器聚合搜索。 */
+    var aggregateSearch: Boolean
+        get() = sp.getBoolean("aggregate_search", true)
+        set(v) = sp.edit().putBoolean("aggregate_search", v).apply()
+
+    /** 首页「继续观看」上方的每日推荐轮播。 */
+    var dailyRecommend: Boolean
+        get() = sp.getBoolean("daily_recommend", true)
+        set(v) = sp.edit().putBoolean("daily_recommend", v).apply()
+
+    // ---- 评分源 ----
+
+    /** TMDB API Key（v3 auth key）。留空则不显示 TMDB 评分。 */
+    var tmdbApiKey: String
+        get() = sp.getString("tmdb_key", "") ?: ""
+        set(v) = sp.edit().putString("tmdb_key", v).apply()
+
+    /** 豆瓣评分（走第三方聚合接口，失败静默隐藏）。 */
+    var doubanRating: Boolean
+        get() = sp.getBoolean("douban_rating", true)
+        set(v) = sp.edit().putBoolean("douban_rating", v).apply()
+
     private fun defaultDeviceName(): String {
         val manufacturer = android.os.Build.MANUFACTURER ?: "Android"
         val model = android.os.Build.MODEL ?: ""

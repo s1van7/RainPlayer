@@ -1,8 +1,10 @@
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
+using System.Windows.Threading;
 using RainPlayer.App.Controls;
 using RainPlayer.App.Services;
 using RainPlayer.Core.Backends;
@@ -16,13 +18,15 @@ public partial class MainWindow : Window
     {
         Home,
         Library,
+        Libraries,
         Detail,
+        Episode,
         Search,
     }
 
     private sealed record Navigation(ViewKind Kind, string Id, string Title);
 
-    private readonly IMediaBackend _backend;
+    private IMediaBackend _backend;
     private readonly Stack<Navigation> _history = new();
     private readonly List<Library> _libraries = new();
     private Navigation _current = new(ViewKind.Home, "", "首页");
@@ -36,7 +40,7 @@ public partial class MainWindow : Window
                    ?? throw new InvalidOperationException("尚未连接服务器");
 
         ImageLoader.Headers = _backend.ImageHeaders;
-        ServerText.Text = _backend.Config.Name;
+        RefreshServerHeader();
 
         SearchBox.TextChanged += (_, _) =>
             SearchPlaceholder.Visibility = SearchBox.Text.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
@@ -65,25 +69,17 @@ public partial class MainWindow : Window
             return;
         }
 
-        LibraryNavPanel.Children.Clear();
-        foreach (var library in _libraries)
-        {
-            var button = new RadioButton
-            {
-                Content = library.Name,
-                Style = (Style)FindResource("NavButton"),
-                Margin = new Thickness(0, 0, 0, 2),
-                GroupName = "nav",
-            };
-            var id = library.Id;
-            var name = library.Name;
-            button.Checked += async (_, _) =>
-            {
-                if (_current.Kind == ViewKind.Library && _current.Id == id) return;
-                await ShowLibraryAsync(id, name);
-            };
-            LibraryNavPanel.Children.Add(button);
-        }
+    }
+
+    /// <summary>按用户配置的顺序与可见性整理媒体库。</summary>
+    private List<Library> ArrangeLibraries()
+    {
+        var cfg = _backend.Config;
+        var visible = _libraries.Where(l => !cfg.HiddenLibraries.Contains(l.Id)).ToList();
+        if (cfg.LibraryOrder.Count == 0) return visible;
+
+        var rank = cfg.LibraryOrder.Select((id, i) => (id, i)).ToDictionary(x => x.id, x => x.i);
+        return visible.OrderBy(l => rank.TryGetValue(l.Id, out var r) ? r : int.MaxValue).ToList();
     }
 
     private async void OnHomeNav(object sender, RoutedEventArgs e)
@@ -106,7 +102,7 @@ public partial class MainWindow : Window
 
         try
         {
-            var rows = await _backend.GetHomeRowsAsync();
+            var rows = ArrangeRows(await _backend.GetHomeRowsAsync());
             if (rows.Count == 0)
             {
                 ShowEmpty("服务器上还没有可显示的媒体");
@@ -114,6 +110,14 @@ public partial class MainWindow : Window
             }
 
             HideEmpty();
+
+            var settings = ((App)Application.Current).Settings;
+            if (settings.DailyRecommend)
+            {
+                var daily = PickDaily(rows);
+                if (daily.Count > 0) ContentPanel.Children.Add(BuildDailyBanner(daily));
+            }
+
             foreach (var row in rows)
                 ContentPanel.Children.Add(BuildRow(row.Title, row.Items, row.LibraryId));
         }
@@ -177,8 +181,27 @@ public partial class MainWindow : Window
     {
         var control = new PosterCard();
         control.Bind(card);
-        control.CardClicked += async (_, clicked) => await ShowDetailAsync(clicked.Id, clicked.Title);
+        control.CardClicked += async (_, clicked) => await OpenCardAsync(clicked);
         return control;
+    }
+
+    /// <summary>
+    /// 打开卡片。聚合搜索的结果可能来自别的服务器，先切过去再进详情，
+    /// 否则详情接口会拿当前服务器的 token 去请求另一台机器。
+    /// </summary>
+    private async Task OpenCardAsync(MediaCard card)
+    {
+        var app = (App)Application.Current;
+        if (!string.IsNullOrEmpty(card.ServerId) && card.ServerId != _backend.Config.Id)
+        {
+            var target = app.Settings.FindServer(card.ServerId!);
+            if (target != null)
+            {
+                SwitchToServer(target);
+                return;
+            }
+        }
+        await ShowDetailAsync(card.Id, card.Title);
     }
 
     // ============================================================ 媒体库
@@ -249,7 +272,32 @@ public partial class MainWindow : Window
 
         try
         {
-            var items = await _backend.SearchAsync(query);
+            var app = (App)Application.Current;
+            List<MediaCard> items;
+
+            if (app.Settings.AggregateSearch && app.Settings.Servers.Count > 1)
+            {
+                var outcome = await AggregateSearch.SearchAsync(query, app.Settings.Servers);
+                items = outcome.Cards;
+
+                PageTitle.Text = $"搜索「{query}」· 聚合 {app.Settings.Servers.Count} 台服务器";
+                if (outcome.Failures.Count > 0)
+                {
+                    ContentPanel.Children.Add(new TextBlock
+                    {
+                        Text = string.Join("；", outcome.Failures.Select(f => $"{f.Server}：{f.Error}")),
+                        FontSize = 11,
+                        Foreground = (Brush)FindResource("SubTextBrush"),
+                        TextWrapping = TextWrapping.Wrap,
+                        Margin = new Thickness(0, 0, 0, 10),
+                    });
+                }
+            }
+            else
+            {
+                items = await _backend.SearchAsync(query);
+            }
+
             if (items.Count == 0)
             {
                 ShowEmpty($"没有找到与「{query}」相关的内容");
@@ -310,7 +358,9 @@ public partial class MainWindow : Window
             }
 
             HideEmpty();
-            ContentPanel.Children.Add(BuildDetail(detail));
+            var detailRoot = BuildDetail(detail);
+            ContentPanel.Children.Add(detailRoot);
+            _ = EnrichDetailAsync(detail, detailRoot);
         }
         catch (Exception ex)
         {
@@ -608,7 +658,7 @@ public partial class MainWindow : Window
 
                     row.Content = content;
                     var captured = episode;
-                    row.Click += async (_, _) => await StartPlaybackAsync(detail, captured.Id);
+                    row.Click += async (_, _) => await ShowEpisodeAsync(captured.Id, detail.Title);
                     row.MouseEnter += (_, _) => row.Background = (Brush)FindResource("CardBrush");
                     row.MouseLeave += (_, _) => row.Background = Brushes.Transparent;
 
@@ -778,6 +828,29 @@ public partial class MainWindow : Window
         }
     }
 
+    /// <summary>从单集详情页直接开播（没有 MediaDetail 上下文时用）。</summary>
+    private async Task StartPlaybackAsync(string itemId, bool fromStart = false)
+    {
+        try
+        {
+            SetBusy(true);
+            var player = new PlayerWindow(
+                _backend, itemId, PageTitle.Text, new List<Episode>(),
+                null, null, null, false,
+                fromStart ? -1 : 0);
+            player.Owner = this;
+            player.Show();
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this, ex.Message, "无法开始播放", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+        finally
+        {
+            SetBusy(false);
+        }
+    }
+
     // ============================================================ 导航与工具
 
     private async void OnBackClick(object sender, RoutedEventArgs e)
@@ -804,6 +877,12 @@ public partial class MainWindow : Window
             case ViewKind.Search:
                 await ShowSearchAsync(previous.Id);
                 break;
+            case ViewKind.Libraries:
+                await ShowLibrariesAsync();
+                break;
+            case ViewKind.Episode:
+                await ShowEpisodeAsync(previous.Id, previous.Title);
+                break;
         }
     }
 
@@ -816,8 +895,7 @@ public partial class MainWindow : Window
         }
 
         HomeNav.IsChecked = false;
-        foreach (var child in LibraryNavPanel.Children.OfType<RadioButton>())
-            child.IsChecked = false;
+        LibrariesNav.IsChecked = false;
     }
 
     private void OnSettingsClick(object sender, RoutedEventArgs e)
@@ -862,5 +940,696 @@ public partial class MainWindow : Window
 
         var image = await ImageLoader.LoadAsync(url);
         if (image != null) target.Source = image;
+    }
+
+    // ============================================================ 服务器菜单
+
+    private void RefreshServerHeader()
+    {
+        var cfg = _backend.Config;
+        ServerText.Text = cfg.Name;
+
+        var parts = new List<string> { cfg.Kind.DisplayName() };
+        if (!string.IsNullOrWhiteSpace(cfg.ActiveLine?.Name)) parts.Add(cfg.ActiveLine!.Name!);
+        if (!string.IsNullOrWhiteSpace(cfg.ActiveUser?.Username)) parts.Add(cfg.ActiveUser!.Username);
+        ServerSubText.Text = string.Join(" · ", parts);
+
+        if (cfg.IconIsUrl)
+        {
+            ServerIconText.Visibility = Visibility.Collapsed;
+            ServerIconImage.Visibility = Visibility.Visible;
+            LoadImageInto(ServerIconImage, cfg.IconUrl);
+        }
+        else
+        {
+            ServerIconImage.Visibility = Visibility.Collapsed;
+            ServerIconText.Visibility = Visibility.Visible;
+            ServerIconText.Text = cfg.IconText;
+        }
+    }
+
+    private void OnServerButtonClick(object sender, RoutedEventArgs e)
+    {
+        var app = (App)Application.Current;
+        var menu = new ContextMenu { PlacementTarget = ServerButton, Placement = PlacementMode.Bottom };
+
+        foreach (var cfg in app.Settings.Servers)
+        {
+            var isCurrent = cfg.Id == _backend.Config.Id;
+            var item = new MenuItem
+            {
+                Header = (isCurrent ? "✓ " : "   ") + cfg.Name,
+                ToolTip = cfg.Summary,
+                FontWeight = isCurrent ? FontWeights.SemiBold : FontWeights.Normal,
+            };
+            var captured = cfg;
+            item.Click += (_, _) => SwitchToServer(captured);
+            menu.Items.Add(item);
+        }
+
+        menu.Items.Add(new Separator());
+        menu.Items.Add(MenuItemFor("媒体库", async () => await ShowLibrariesAsync()));
+        menu.Items.Add(MenuItemFor("服务器设置…", () =>
+        {
+            new ServerWindow { Owner = this }.ShowDialog();
+            ReloadBackend();
+            _ = ShowHomeAsync();
+        }));
+        menu.Items.Add(MenuItemFor("添加服务器…", () =>
+        {
+            var login = new LoginWindow();
+            login.Show();
+            Close();
+        }));
+        menu.Items.Add(MenuItemFor("应用设置…", () =>
+        {
+            new SettingsWindow { Owner = this }.ShowDialog();
+        }));
+        menu.Items.Add(new Separator());
+        menu.Items.Add(MenuItemFor("退出登录", OnSignOutClick));
+
+        menu.IsOpen = true;
+    }
+
+    private static MenuItem MenuItemFor(string header, Action action)
+    {
+        var item = new MenuItem { Header = header };
+        item.Click += (_, _) => action();
+        return item;
+    }
+
+    private static MenuItem MenuItemFor(string header, RoutedEventHandler handler)
+    {
+        var item = new MenuItem { Header = header };
+        item.Click += handler;
+        return item;
+    }
+
+    private void SwitchToServer(ServerConfig config)
+    {
+        if (config.Id == _backend.Config.Id) return;
+        ((App)Application.Current).SwitchServer(config);
+        var main = new MainWindow();
+        Application.Current.MainWindow = main;
+        main.Show();
+        Close();
+    }
+
+    // ============================================================ 媒体库页（开关 / 排序）
+
+    private async void OnLibrariesNav(object sender, RoutedEventArgs e)
+    {
+        if (_current.Kind == ViewKind.Libraries) return;
+        await ShowLibrariesAsync();
+    }
+
+    private async Task ShowLibrariesAsync()
+    {
+        if (_busy) return;
+        SetBusy(true);
+        ResetNavSelection(LibrariesNav);
+        _history.Push(_current);
+        _current = new Navigation(ViewKind.Libraries, "", "媒体库");
+        PageTitle.Text = "媒体库";
+        BackButton.Visibility = Visibility.Visible;
+        ContentPanel.Children.Clear();
+
+        try
+        {
+            if (_libraries.Count == 0) await LoadLibrariesAsync();
+
+            HideEmpty();
+            ContentPanel.Children.Add(new TextBlock
+            {
+                Text = "关掉的媒体库不会出现在首页；上下箭头调整首页里的顺序",
+                Foreground = (Brush)FindResource("SubTextBrush"),
+                FontSize = 12,
+                Margin = new Thickness(0, 0, 0, 14),
+            });
+
+            var list = new StackPanel();
+            foreach (var library in _libraries)
+            {
+                list.Children.Add(BuildLibraryRow(library));
+            }
+            ContentPanel.Children.Add(list);
+        }
+        catch (Exception ex)
+        {
+            ShowEmpty($"加载失败：{ex.Message}");
+        }
+        finally
+        {
+            SetBusy(false);
+        }
+    }
+
+    private UIElement BuildLibraryRow(Library library)
+    {
+        var cfg = _backend.Config;
+        var hidden = cfg.HiddenLibraries.Contains(library.Id);
+
+        var border = new Border
+        {
+            CornerRadius = new CornerRadius(12),
+            Background = (Brush)FindResource("CardBrush"),
+            BorderBrush = (Brush)FindResource("GlassBorderBrush"),
+            BorderThickness = new Thickness(1),
+            Padding = new Thickness(16, 12, 16, 12),
+            Margin = new Thickness(0, 0, 0, 8),
+        };
+
+        var grid = new Grid();
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        var text = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+        text.Children.Add(new TextBlock
+        {
+            Text = library.Name,
+            FontSize = 15,
+            FontWeight = FontWeights.SemiBold,
+            Foreground = hidden ? (Brush)FindResource("FaintTextBrush") : (Brush)FindResource("TextBrush"),
+        });
+        text.Children.Add(new TextBlock
+        {
+            Text = library.CollectionType ?? "混合内容",
+            FontSize = 11,
+            Foreground = (Brush)FindResource("SubTextBrush"),
+            Margin = new Thickness(0, 3, 0, 0),
+        });
+        Grid.SetColumn(text, 0);
+        grid.Children.Add(text);
+
+        var actions = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+
+        actions.Children.Add(SmallButton("▲", () => MoveLibrary(library.Id, -1)));
+        actions.Children.Add(SmallButton("▼", () => MoveLibrary(library.Id, 1)));
+
+        var toggle = new CheckBox
+        {
+            IsChecked = !hidden,
+            Content = "显示",
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(12, 0, 0, 0),
+            Foreground = (Brush)FindResource("TextBrush"),
+        };
+        toggle.Checked += (_, _) => SetLibraryHidden(library.Id, false);
+        toggle.Unchecked += (_, _) => SetLibraryHidden(library.Id, true);
+        actions.Children.Add(toggle);
+
+        Grid.SetColumn(actions, 1);
+        grid.Children.Add(actions);
+
+        border.Child = grid;
+        border.MouseEnter += (_, _) => border.BorderBrush = (Brush)FindResource("AccentBrush");
+        border.MouseLeave += (_, _) => border.BorderBrush = (Brush)FindResource("GlassBorderBrush");
+        return border;
+    }
+
+    private Button SmallButton(string text, Action action)
+    {
+        var button = new Button
+        {
+            Content = text,
+            Style = (Style)FindResource("GhostButton"),
+            Padding = new Thickness(8, 2, 8, 2),
+            Margin = new Thickness(0, 0, 4, 0),
+            FontSize = 12,
+        };
+        button.Click += (_, _) => action();
+        return button;
+    }
+
+    private void SetLibraryHidden(string libraryId, bool hidden)
+    {
+        var app = (App)Application.Current;
+        var cfg = _backend.Config.Clone();
+        if (hidden)
+        {
+            if (!cfg.HiddenLibraries.Contains(libraryId)) cfg.HiddenLibraries.Add(libraryId);
+        }
+        else
+        {
+            cfg.HiddenLibraries.Remove(libraryId);
+        }
+        app.Settings.UpsertServer(cfg);
+        app.Settings.Save();
+        app.SwitchServer(cfg);
+        ReloadBackend();
+    }
+
+    /// <summary>配置变更后重新取一次后端，否则当前窗口还拿着旧 Config 在跑。</summary>
+    private void ReloadBackend()
+    {
+        var app = (App)Application.Current;
+        if (app.Backend != null) _backend = app.Backend;
+        ImageLoader.Headers = _backend.ImageHeaders;
+        RefreshServerHeader();
+    }
+
+    private void MoveLibrary(string libraryId, int delta)
+    {
+        var app = (App)Application.Current;
+        var cfg = _backend.Config.Clone();
+        var order = cfg.LibraryOrder.ToList();
+        foreach (var lib in _libraries)
+            if (!order.Contains(lib.Id)) order.Add(lib.Id);
+
+        var index = order.IndexOf(libraryId);
+        if (index < 0) return;
+        var target = Math.Clamp(index + delta, 0, order.Count - 1);
+        if (target == index) return;
+
+        order.RemoveAt(index);
+        order.Insert(target, libraryId);
+        cfg.LibraryOrder = order;
+
+        app.Settings.UpsertServer(cfg);
+        app.Settings.Save();
+        app.SwitchServer(cfg);
+        ReloadBackend();
+        _ = ShowLibrariesAsync();
+    }
+
+    // ============================================================ 首页整理与每日推荐
+
+    private List<HomeRow> ArrangeRows(List<HomeRow> rows)
+    {
+        var cfg = _backend.Config;
+        var visible = rows.Where(r => r.LibraryId == null || !cfg.HiddenLibraries.Contains(r.LibraryId)).ToList();
+        if (cfg.LibraryOrder.Count == 0) return visible;
+
+        var rank = cfg.LibraryOrder.Select((id, i) => (id, i)).ToDictionary(x => x.id, x => x.i);
+        var head = visible.Where(r => r.LibraryId == null).ToList();
+        var tail = visible.Where(r => r.LibraryId != null)
+            .OrderBy(r => rank.TryGetValue(r.LibraryId!, out var v) ? v : int.MaxValue);
+        return head.Concat(tail).ToList();
+    }
+
+    private static List<MediaCard> PickDaily(List<HomeRow> rows)
+    {
+        var pool = new Dictionary<string, MediaCard>();
+        foreach (var card in rows.Where(r => r.Kind != RowKind.Continue)
+                     .SelectMany(r => r.Items)
+                     .Where(c => !string.IsNullOrWhiteSpace(c.BackdropUrl)))
+        {
+            pool.TryAdd(card.Id, card);
+        }
+
+        var list = pool.Values.OrderByDescending(c => c.Rating ?? 0).Take(12).ToList();
+        if (list.Count == 0) return list;
+
+        var day = DateTime.Now.DayOfYear;
+        var start = day % list.Count;
+        return list.Skip(start).Concat(list.Take(start)).Take(6).ToList();
+    }
+
+    private UIElement BuildDailyBanner(List<MediaCard> items)
+    {
+        var host = new Grid { Height = 260, Margin = new Thickness(0, 0, 0, 26) };
+
+        var border = new Border
+        {
+            CornerRadius = new CornerRadius(18),
+            ClipToBounds = true,
+            Background = (Brush)FindResource("CardBrush"),
+        };
+        host.Children.Add(border);
+
+        var image = new Image { Stretch = Stretch.UniformToFill };
+        border.Child = image;
+
+        var overlay = new Border
+        {
+            Background = new LinearGradientBrush(
+                Color.FromArgb(0, 0, 0, 0),
+                Color.FromArgb(235, 0, 0, 0),
+                new Point(0.5, 0),
+                new Point(0.5, 1)),
+        };
+        host.Children.Add(overlay);
+
+        var textStack = new StackPanel
+        {
+            VerticalAlignment = VerticalAlignment.Bottom,
+            Margin = new Thickness(26, 0, 26, 22),
+        };
+        var titleText = new TextBlock { FontSize = 26, FontWeight = FontWeights.Bold, Foreground = Brushes.White };
+        var metaText = new TextBlock
+        {
+            FontSize = 12.5,
+            Foreground = new SolidColorBrush(Color.FromArgb(220, 255, 255, 255)),
+            Margin = new Thickness(0, 6, 0, 0),
+        };
+        textStack.Children.Add(new TextBlock
+        {
+            Text = "今日推荐 · 每天换一批",
+            FontSize = 12,
+            Foreground = (Brush)FindResource("AccentBrush"),
+            Margin = new Thickness(0, 0, 0, 6),
+        });
+        textStack.Children.Add(titleText);
+        textStack.Children.Add(metaText);
+        host.Children.Add(textStack);
+
+        var dots = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            VerticalAlignment = VerticalAlignment.Bottom,
+            Margin = new Thickness(0, 0, 26, 26),
+        };
+        host.Children.Add(dots);
+
+        var index = 0;
+
+        void Render()
+        {
+            var card = items[index];
+            LoadImageInto(image, card.BackdropUrl ?? card.PosterUrl);
+            titleText.Text = card.Title;
+            var meta = new List<string>();
+            if (card.Rating is > 0) meta.Add($"★ {card.Rating:0.0}");
+            if (card.Year != null) meta.Add(card.Year.ToString()!);
+            if (!string.IsNullOrWhiteSpace(card.Subtitle)) meta.Add(card.Subtitle!);
+            metaText.Text = string.Join(" · ", meta);
+
+            dots.Children.Clear();
+            for (var i = 0; i < items.Count; i++)
+            {
+                dots.Children.Add(new Border
+                {
+                    Width = i == index ? 8 : 6,
+                    Height = i == index ? 8 : 6,
+                    CornerRadius = new CornerRadius(4),
+                    Margin = new Thickness(3, 0, 3, 0),
+                    Background = i == index ? (Brush)FindResource("AccentBrush") : new SolidColorBrush(Color.FromArgb(70, 255, 255, 255)),
+                });
+            }
+        }
+
+        Render();
+
+        var timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(7) };
+        timer.Tick += (_, _) =>
+        {
+            index = (index + 1) % items.Count;
+            Render();
+        };
+        timer.Start();
+        host.Unloaded += (_, _) => timer.Stop();
+
+        border.Cursor = Cursors.Hand;
+        border.MouseLeftButtonUp += async (_, _) => await ShowDetailAsync(items[index].Id, items[index].Title);
+        return host;
+    }
+
+    // ============================================================ 单集详情
+
+    private async Task ShowEpisodeAsync(string episodeId, string? fallbackTitle)
+    {
+        if (_busy) return;
+        SetBusy(true);
+        _history.Push(_current);
+        PageTitle.Text = fallbackTitle ?? "单集";
+        BackButton.Visibility = Visibility.Visible;
+        ContentPanel.Children.Clear();
+
+        try
+        {
+            var episode = await _backend.GetEpisodeAsync(episodeId);
+            _current = new Navigation(ViewKind.Episode, episodeId, episode.Title);
+            PageTitle.Text = episode.Title;
+            HideEmpty();
+            ContentPanel.Children.Add(BuildEpisodePage(episode, fallbackTitle));
+        }
+        catch (Exception ex)
+        {
+            ShowEmpty($"加载单集失败：{ex.Message}");
+        }
+        finally
+        {
+            SetBusy(false);
+        }
+    }
+
+    private UIElement BuildEpisodePage(Episode episode, string? fallbackTitle)
+    {
+        var root = new StackPanel();
+
+        var hero = new Border
+        {
+            Height = 300,
+            CornerRadius = new CornerRadius(16),
+            ClipToBounds = true,
+            Background = (Brush)FindResource("CardBrush"),
+            Margin = new Thickness(0, 0, 0, 20),
+        };
+        var heroGrid = new Grid();
+        var heroImage = new Image { Stretch = Stretch.UniformToFill };
+        heroGrid.Children.Add(heroImage);
+        LoadImageInto(heroImage, episode.BackdropUrl ?? episode.ImageUrl);
+        heroGrid.Children.Add(new Border
+        {
+            Background = new LinearGradientBrush(
+                Color.FromArgb(0, 0, 0, 0),
+                Color.FromArgb(240, 0, 0, 0),
+                new Point(0.5, 0.1),
+                new Point(0.5, 1)),
+        });
+
+        var heroText = new StackPanel
+        {
+            VerticalAlignment = VerticalAlignment.Bottom,
+            Margin = new Thickness(26, 0, 26, 22),
+        };
+        heroText.Children.Add(new TextBlock
+        {
+            Text = episode.Label,
+            Foreground = (Brush)FindResource("AccentBrush"),
+            FontSize = 12.5,
+            FontWeight = FontWeights.SemiBold,
+        });
+        heroText.Children.Add(new TextBlock
+        {
+            Text = episode.Title,
+            Foreground = Brushes.White,
+            FontSize = 26,
+            FontWeight = FontWeights.Bold,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 6, 0, 0),
+        });
+        heroGrid.Children.Add(heroText);
+        hero.Child = heroGrid;
+        root.Children.Add(hero);
+
+        var actions = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 18) };
+        var play = new Button
+        {
+            Content = episode.Progress > 0.01 ? "继续播放" : "播放",
+            Style = (Style)FindResource("PrimaryButton"),
+        };
+        play.Click += async (_, _) => await StartPlaybackAsync(episode.Id);
+        actions.Children.Add(play);
+
+        if (episode.Progress > 0.01)
+        {
+            var restart = new Button
+            {
+                Content = "从头播放",
+                Style = (Style)FindResource("GhostButton"),
+                Margin = new Thickness(10, 0, 0, 0),
+            };
+            restart.Click += async (_, _) => await StartPlaybackAsync(episode.Id, fromStart: true);
+            actions.Children.Add(restart);
+        }
+
+        if (!string.IsNullOrWhiteSpace(episode.SeriesId))
+        {
+            var series = new Button
+            {
+                Content = "查看整部剧集",
+                Style = (Style)FindResource("GhostButton"),
+                Margin = new Thickness(10, 0, 0, 0),
+            };
+            var sid = episode.SeriesId!;
+            var sname = episode.SeriesName ?? fallbackTitle ?? "";
+            series.Click += async (_, _) => await ShowDetailAsync(sid, sname);
+            actions.Children.Add(series);
+        }
+        root.Children.Add(actions);
+
+        var info = new Border
+        {
+            CornerRadius = new CornerRadius(14),
+            Background = (Brush)FindResource("CardBrush"),
+            BorderBrush = (Brush)FindResource("GlassBorderBrush"),
+            BorderThickness = new Thickness(1),
+            Padding = new Thickness(18),
+            Margin = new Thickness(0, 0, 0, 18),
+        };
+        var infoStack = new StackPanel();
+        infoStack.Children.Add(new TextBlock
+        {
+            Text = "本集信息",
+            FontSize = 14,
+            FontWeight = FontWeights.SemiBold,
+            Margin = new Thickness(0, 0, 0, 8),
+        });
+        void AddLine(string label, string? value)
+        {
+            if (string.IsNullOrWhiteSpace(value)) return;
+            var row = new Grid { Margin = new Thickness(0, 3, 0, 3) };
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(84) });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            var l = new TextBlock { Text = label, FontSize = 12, Foreground = (Brush)FindResource("SubTextBrush") };
+            var v = new TextBlock { Text = value, FontSize = 12, TextWrapping = TextWrapping.Wrap };
+            Grid.SetColumn(l, 0);
+            Grid.SetColumn(v, 1);
+            row.Children.Add(l);
+            row.Children.Add(v);
+            infoStack.Children.Add(row);
+        }
+        AddLine("所属剧集", episode.SeriesName ?? fallbackTitle);
+        AddLine("季集", episode.Label);
+        AddLine("播出日期", episode.AirDate);
+        AddLine("观看状态", episode.Played ? "已看完" : null);
+        info.Child = infoStack;
+        root.Children.Add(info);
+
+        root.Children.Add(new TextBlock
+        {
+            Text = "简介",
+            FontSize = 15,
+            FontWeight = FontWeights.SemiBold,
+            Margin = new Thickness(0, 0, 0, 6),
+        });
+        root.Children.Add(new TextBlock
+        {
+            Text = string.IsNullOrWhiteSpace(episode.Overview) ? "这一集还没有简介" : episode.Overview!,
+            TextWrapping = TextWrapping.Wrap,
+            FontSize = 13,
+            LineHeight = 21,
+            Foreground = (Brush)FindResource("SubTextBrush"),
+        });
+
+        return root;
+    }
+
+    // ============================================================ 详情页补充：评分与类似作品
+
+    private async Task EnrichDetailAsync(MediaDetail detail, UIElement container)
+    {
+        if (container is not Panel root) return;
+        var app = (App)Application.Current;
+        var settings = app.Settings;
+
+        ExternalRatings? ratings = null;
+        try
+        {
+            ratings = await RatingsService.FetchAsync(
+                detail.Title,
+                detail.OriginalTitle,
+                detail.Year,
+                detail.Type == MediaType.Series,
+                settings.TmdbApiKey,
+                settings.DoubanRating);
+        }
+        catch
+        {
+            // 评分拿不到就不显示
+        }
+
+        if (ratings is { IsEmpty: false })
+        {
+            var bar = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                Margin = new Thickness(0, 4, 0, 16),
+            };
+            if (ratings.Tmdb != null) bar.Children.Add(RatingBadge("TMDB", ratings.Tmdb.Value, ratings.TmdbVotes));
+            if (ratings.Douban != null) bar.Children.Add(RatingBadge("豆瓣", ratings.Douban.Value, ratings.DoubanVotes));
+            if (root.Children.Count > 1) root.Children.Insert(1, bar);
+            else root.Children.Add(bar);
+        }
+
+        List<MediaCard> similar;
+        try
+        {
+            similar = await _backend.GetSimilarAsync(detail.Id, 14);
+        }
+        catch
+        {
+            return;
+        }
+        if (similar.Count == 0) return;
+
+        var section = new StackPanel { Margin = new Thickness(0, 22, 0, 0) };
+        section.Children.Add(new TextBlock
+        {
+            Text = "更多类似作品",
+            FontSize = 17,
+            FontWeight = FontWeights.SemiBold,
+            Margin = new Thickness(0, 0, 0, 12),
+        });
+
+        var scroller = new ScrollViewer
+        {
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Disabled,
+        };
+        var strip = new StackPanel { Orientation = Orientation.Horizontal };
+        foreach (var card in similar)
+        {
+            var poster = new PosterCard { Width = 132, Margin = new Thickness(0, 0, 12, 0) };
+            poster.Bind(card);
+            poster.CardClicked += async (_, clicked) => await ShowDetailAsync(clicked.Id, clicked.Title);
+            strip.Children.Add(poster);
+        }
+        scroller.Content = strip;
+        section.Children.Add(scroller);
+        root.Children.Add(section);
+    }
+
+    private UIElement RatingBadge(string source, double score, int? votes)
+    {
+        var border = new Border
+        {
+            CornerRadius = new CornerRadius(10),
+            Background = (Brush)FindResource("CardBrush"),
+            BorderBrush = new SolidColorBrush(Color.FromArgb(90, 245, 196, 81)),
+            BorderThickness = new Thickness(1),
+            Padding = new Thickness(12, 7, 12, 7),
+            Margin = new Thickness(0, 0, 10, 0),
+        };
+        var panel = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+        panel.Children.Add(new TextBlock
+        {
+            Text = source,
+            FontSize = 11,
+            Foreground = (Brush)FindResource("SubTextBrush"),
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0, 0, 8, 0),
+        });
+        panel.Children.Add(new TextBlock
+        {
+            Text = score.ToString("0.0"),
+            FontSize = 17,
+            FontWeight = FontWeights.Bold,
+            Foreground = (Brush)FindResource("GoldBrush"),
+        });
+        if (votes is > 0)
+        {
+            panel.Children.Add(new TextBlock
+            {
+                Text = votes >= 10000 ? $" {votes / 10000}万" : $" {votes}",
+                FontSize = 10,
+                Foreground = (Brush)FindResource("SubTextBrush"),
+                VerticalAlignment = VerticalAlignment.Center,
+            });
+        }
+        border.Child = panel;
+        return border;
     }
 }

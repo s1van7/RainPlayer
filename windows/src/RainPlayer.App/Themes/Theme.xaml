@@ -20,6 +20,10 @@
     <SolidColorBrush x:Key="FaintTextBrush" Color="#6B7280" />
     <SolidColorBrush x:Key="BorderBrush" Color="#2A2F3A" />
     <SolidColorBrush x:Key="DangerBrush" Color="#F05252" />
+    <!-- 毛玻璃面板的亮边；关闭毛玻璃时由 ThemeManager 置为全透明 -->
+    <SolidColorBrush x:Key="GlassBorderBrush" Color="#24FFFFFF" />
+    <!-- 评分金色，不随主题变化 -->
+    <SolidColorBrush x:Key="GoldBrush" Color="#F5C451" />
 
     <FontFamily x:Key="AppFont">Microsoft YaHei UI, Segoe UI, sans-serif</FontFamily>
 

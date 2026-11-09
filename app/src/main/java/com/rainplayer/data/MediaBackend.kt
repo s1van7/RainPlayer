@@ -23,6 +23,28 @@ interface MediaBackend {
 
     suspend fun detail(itemId: String): MediaDetail
 
+    /** 「更多类似作品」推荐。服务器不支持时返回空列表，UI 自动隐藏该区块。 */
+    suspend fun similar(itemId: String, limit: Int = 12): List<MediaCard> = emptyList()
+
+    /** 单集详情（剧集列表点进去的那一集）。默认用 [detail] 兜底。 */
+    suspend fun episode(itemId: String): Episode {
+        val d = detail(itemId)
+        return Episode(
+            id = d.id,
+            title = d.title,
+            index = 0,
+            seasonIndex = 0,
+            overview = d.overview,
+            imageUrl = d.posterUrl,
+            backdropUrl = d.backdropUrl,
+            runtimeMinutes = d.runtimeMinutes,
+            played = d.played,
+            progress = d.progress,
+            seriesId = null,
+            seriesName = null,
+        )
+    }
+
     suspend fun seasons(seriesId: String): List<Season>
 
     suspend fun episodes(seriesId: String, seasonId: String): List<Episode>
@@ -70,6 +92,14 @@ interface MediaBackend {
 
     /** 外挂字幕需要鉴权时，把它落地成本地文件；返回 true 表示成功。 */
     suspend fun downloadSubtitle(track: SubtitleTrack, dest: File): Boolean
+
+    /**
+     * 把本后端的鉴权头重新写回全局图片拦截器。
+     *
+     * 聚合搜索会临时创建「非当前服务器」的后端，它们同样会改写拦截器；
+     * 搜索结束后调用这个把状态还原，避免封面图带着别的服务器的 token 去请求。
+     */
+    fun refreshAuth() = Unit
 }
 
 object BackendFactory {

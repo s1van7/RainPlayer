@@ -197,7 +197,7 @@ public sealed class EmbyBackend : IMediaBackend
     {
         const string fields = "Overview,People,Genres,ProductionYear,RunTimeTicks,CommunityRating," +
                               "OfficialRating,MediaSources,MediaStreams,Taglines,UserData,BackdropImageTags,ImageTags," +
-                              "PrimaryImageAspectRatio,Studios,ChildCount";
+                              "PrimaryImageAspectRatio,Studios,ChildCount,PremiereDate,CriticRating";
         var text = await Http.GetTextAsync(Url($"/Users/{_userId}/Items/{itemId}?Fields={fields}"), TokenHeaders(), ct)
             .ConfigureAwait(false);
 
@@ -264,6 +264,58 @@ public sealed class EmbyBackend : IMediaBackend
             Progress = (userData.Dbl("PlayedPercentage") ?? 0) / 100.0,
             PlayTargetId = playTarget,
             Studio = o.Arr("Studios").FirstOrDefault().Str("Name"),
+            PremiereDate = o.Str("PremiereDate") is { Length: >= 10 } pd ? pd[..10] : null,
+            CommunityRating = o.Dbl("CommunityRating"),
+            CriticRating = o.Dbl("CriticRating"),
+        };
+    }
+
+    /// <summary>「更多类似作品」：Emby / Jellyfin 都提供 /Items/{id}/Similar。</summary>
+    public async Task<List<MediaCard>> GetSimilarAsync(string itemId, int limit = 12, CancellationToken ct = default)
+    {
+        var text = await Http.GetTextAsync(
+            Url($"/Items/{itemId}/Similar?UserId={_userId}&Limit={limit}" +
+                "&Fields=PrimaryImageTag,ProductionYear,RunTimeTicks,UserData,BackdropImageTags,CommunityRating" +
+                "&ImageTypeLimit=1&EnableImageTypes=Primary,Backdrop"),
+            TokenHeaders(), ct).ConfigureAwait(false);
+
+        using var doc = JsonExt.Parse(text);
+        var result = new List<MediaCard>();
+        foreach (var element in (doc?.RootElement ?? default).Arr("Items"))
+        {
+            var card = MapCard(element);
+            if (card != null) result.Add(card);
+        }
+        return result;
+    }
+
+    /// <summary>单集详情：补上所属剧集、播出日期、剧照。</summary>
+    public async Task<Episode> GetEpisodeAsync(string itemId, CancellationToken ct = default)
+    {
+        const string fields = "Overview,RunTimeTicks,UserData,ImageTags,BackdropImageTags,ProductionYear," +
+                              "PremiereDate,IndexNumber,ParentIndexNumber,SeriesId,SeriesName";
+        var text = await Http.GetTextAsync(Url($"/Users/{_userId}/Items/{itemId}?Fields={fields}"), TokenHeaders(), ct)
+            .ConfigureAwait(false);
+
+        using var doc = JsonExt.Parse(text) ?? throw new InvalidOperationException("无法获取单集详情");
+        var o = doc.RootElement;
+        var ud = o.Obj("UserData");
+        var minutes = (int)(JsonExt.TicksToMs(o.Long("RunTimeTicks")) / 60_000L);
+        return new Episode
+        {
+            Id = itemId,
+            Title = o.StrOr("Name", "未命名"),
+            Index = o.Int("IndexNumber") ?? 0,
+            SeasonIndex = o.Int("ParentIndexNumber") ?? 0,
+            Overview = o.Str("Overview"),
+            ImageUrl = PrimaryImage(itemId, o),
+            BackdropUrl = BackdropImage(itemId, o),
+            RuntimeMinutes = minutes > 0 ? minutes : null,
+            Played = ud.Bool("Played") ?? false,
+            Progress = (ud.Dbl("PlayedPercentage") ?? 0) / 100.0,
+            AirDate = o.Str("PremiereDate") is { Length: >= 10 } d ? d[..10] : null,
+            SeriesId = o.Str("SeriesId"),
+            SeriesName = o.Str("SeriesName"),
         };
     }
 

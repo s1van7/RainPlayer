@@ -9,11 +9,18 @@ import coil.request.CachePolicy
 import com.rainplayer.core.Http
 import com.rainplayer.core.Prefs
 import com.rainplayer.data.BackendFactory
+import com.rainplayer.data.FailoverBackend
 import com.rainplayer.data.MediaBackend
+import com.rainplayer.data.ServerConfig
+import com.rainplayer.ui.theme.AppTheme
+import com.rainplayer.ui.theme.ThemeState
 
 /**
- * 极简服务定位器：只有一个活动服务器会话，用全局单例比引入 DI 框架更轻，
+ * 极简服务定位器：只有一个「活动服务器会话」，用全局单例比引入 DI 框架更轻，
  * 也能避免 API 21 设备上注解处理器的额外方法数。
+ *
+ * 多服务器的区别在于：服务器列表全量存在 [Prefs] 里，但同一时刻只有一个「活动」的，
+ * 聚合搜索才会临时实例化其它服务器的后端。
  */
 object Graph {
 
@@ -29,19 +36,40 @@ object Graph {
     fun init(application: Application) {
         app = application
         prefs = Prefs(application)
+        ThemeState.apply(AppTheme.of(prefs.themeKey), prefs.glassEffect)
+        migrate()
+    }
+
+    /** 老版本只存单 url / 单 token，启动时折叠成线路与账号目录。 */
+    private fun migrate() {
+        val raw = prefs.servers
+        if (raw.isEmpty()) return
+        val normalized = raw.map { it.normalize() }
+        if (normalized != raw) prefs.servers = normalized
     }
 
     val deviceId: String get() = prefs.deviceId
 
-    /** 当前活动服务器对应的后端；服务器切换时自动重建。 */
+    fun servers(): List<ServerConfig> = prefs.servers
+
+    fun activeConfig(): ServerConfig? {
+        val id = prefs.activeServerId ?: return null
+        return prefs.servers.firstOrNull { it.id == id }
+    }
+
+    /** 当前活动服务器对应的后端；服务器 / 线路 / 账号切换时自动重建。 */
     fun backend(): MediaBackend? {
-        val activeId = prefs.activeServerId ?: return null
-        val config = prefs.servers.firstOrNull { it.id == activeId } ?: return null
+        val config = activeConfig() ?: return null
         val cached = backendCache
-        if (cached != null && cached.config.id == config.id && cached.config.token == config.token) {
+        if (cached != null &&
+            cached.config.id == config.id &&
+            cached.config.url == config.url &&
+            cached.config.token == config.token
+        ) {
             return cached
         }
-        val created = BackendFactory.create(config)
+        // 包一层自动切换线路：连不上就换下一条，切换结果落盘
+        val created = FailoverBackend(config) { updated -> saveServer(updated, invalidate = false) }
         backendCache = created
         return created
     }
@@ -51,11 +79,28 @@ object Graph {
         Http.authInterceptor.clear()
     }
 
-    fun saveServer(config: com.rainplayer.data.ServerConfig) {
+    /**
+     * 保存一台服务器。
+     *
+     * @param invalidate 是否同时让后端缓存失效。线路自动切换时传 false，
+     *   否则会把正在使用的后端对象丢掉。
+     */
+    fun saveServer(config: ServerConfig, invalidate: Boolean = true) {
+        val normalized = config.normalize()
         val list = prefs.servers.toMutableList()
-        val index = list.indexOfFirst { it.id == config.id }
-        if (index >= 0) list[index] = config else list.add(config)
+        val index = list.indexOfFirst { it.id == normalized.id }
+        if (index >= 0) list[index] = normalized else list.add(normalized)
         prefs.servers = list
+        if (invalidate) invalidateBackend()
+    }
+
+    fun deleteServer(id: String) {
+        val remaining = prefs.servers.filterNot { it.id == id }
+        prefs.servers = remaining
+        if (prefs.activeServerId == id) {
+            prefs.activeServerId = remaining.firstOrNull()?.id
+            invalidateBackend()
+        }
     }
 }
 

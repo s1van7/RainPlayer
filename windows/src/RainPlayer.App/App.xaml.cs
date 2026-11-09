@@ -4,6 +4,7 @@ using RainPlayer.App.Views;
 using RainPlayer.Core.Backends;
 using RainPlayer.Core.Models;
 using RainPlayer.Core.Settings;
+using RainPlayer.App.Themes;
 
 namespace RainPlayer.App;
 
@@ -27,13 +28,14 @@ public partial class App : Application
         };
 
         Settings = AppSettings.Load();
+        ThemeManager.Apply(Settings.ThemeKey, Settings.GlassEffect);
 
         var server = Settings.CurrentServer();
         if (server != null)
         {
             try
             {
-                Backend = BackendFactory.Create(server);
+                Backend = CreateBackend(server);
                 ShowMain();
                 return;
             }
@@ -58,7 +60,7 @@ public partial class App : Application
     {
         Settings.UpsertServer(config);
         Settings.Save();
-        Backend = BackendFactory.Create(config);
+        Backend = CreateBackend(config);
 
         var main = new MainWindow();
         MainWindow = main;
@@ -66,6 +68,23 @@ public partial class App : Application
 
         foreach (var window in Windows.OfType<Window>().Where(w => w != main).ToList())
             window.Close();
+    }
+
+    /// <summary>把后端包一层多线路自动切换；线路切换结果会落盘。</summary>
+    public static IMediaBackend CreateBackend(ServerConfig config) =>
+        new FailoverBackend(config.Normalize(), updated =>
+        {
+            var app = (App)Current;
+            app.Settings.UpsertServer(updated);
+            app.Settings.Save();
+        });
+
+    /// <summary>切换活动服务器（不动登录态）。</summary>
+    public void SwitchServer(ServerConfig config)
+    {
+        Settings.UpsertServer(config);
+        Settings.Save();
+        Backend = CreateBackend(config);
     }
 
     private void ShowMain()

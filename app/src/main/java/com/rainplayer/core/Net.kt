@@ -28,7 +28,14 @@ class ServerAuthInterceptor : okhttp3.Interceptor {
     var headers: Map<String, String> = emptyMap()
 
     fun update(serverUrl: String, newHeaders: Map<String, String>) {
-        host = runCatching { java.net.URI(serverUrl).host ?: "" }.getOrDefault("")
+        // 只比 host 不够：同一台机器上可能跑着多个服务器（不同端口），
+        // 把端口带上才能保证不会把 A 服务器的 token 发给 B。
+        host = runCatching {
+            val uri = java.net.URI(serverUrl)
+            val h = uri.host ?: ""
+            val p = if (uri.port > 0) uri.port else if (uri.scheme == "https") 443 else 80
+            "$h:$p"
+        }.getOrDefault("")
         headers = newHeaders
     }
 
@@ -39,7 +46,11 @@ class ServerAuthInterceptor : okhttp3.Interceptor {
 
     override fun intercept(chain: okhttp3.Interceptor.Chain): okhttp3.Response {
         val request = chain.request()
-        if (host.isEmpty() || request.url.host != host || headers.isEmpty()) {
+        if (host.isEmpty() || request.url.host.isEmpty() || headers.isEmpty()) {
+            return chain.proceed(request)
+        }
+        val requestHost = "${request.url.host}:${request.url.port}"
+        if (requestHost != host) {
             return chain.proceed(request)
         }
         val builder = request.newBuilder()

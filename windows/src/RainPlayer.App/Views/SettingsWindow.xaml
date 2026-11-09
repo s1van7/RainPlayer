@@ -19,6 +19,44 @@
 
         <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
             <StackPanel>
+                <TextBlock Text="外观" Style="{StaticResource SectionText}" Margin="0,0,0,10" />
+                <TextBlock Text="主题" Style="{StaticResource SubText}" Margin="0,0,0,8" />
+                <WrapPanel x:Name="ThemePanel" Margin="0,0,0,10" />
+
+                <CheckBox x:Name="GlassBox" Content="毛玻璃效果"
+                          Foreground="{StaticResource TextBrush}" FontSize="13.5" Margin="0,0,0,6" />
+                <TextBlock Text="面板半透明，背景隐约透出来；关闭后更省显卡"
+                           Style="{StaticResource SubText}" Margin="24,0,0,18" />
+
+                <Border Style="{StaticResource Divider}" Margin="0,0,0,18" />
+
+                <TextBlock Text="内容与评分" Style="{StaticResource SectionText}" Margin="0,0,0,12" />
+
+                <CheckBox x:Name="AggregateBox" Content="聚合搜索（同时搜索所有服务器）"
+                          Foreground="{StaticResource TextBrush}" FontSize="13.5" Margin="0,0,0,6" />
+                <TextBlock Text="结果会标注来源服务器，点开自动切到那台服务器"
+                           Style="{StaticResource SubText}" Margin="24,0,0,14" />
+
+                <CheckBox x:Name="DailyBox" Content="首页每日推荐轮播"
+                          Foreground="{StaticResource TextBrush}" FontSize="13.5" Margin="0,0,0,6" />
+                <TextBlock Text="显示在「继续观看」上方，每天自动换一批"
+                           Style="{StaticResource SubText}" Margin="24,0,0,14" />
+
+                <CheckBox x:Name="DoubanBox" Content="豆瓣评分"
+                          Foreground="{StaticResource TextBrush}" FontSize="13.5" Margin="0,0,0,6" />
+                <TextBlock Text="通过第三方聚合接口获取；拿不到自动隐藏"
+                           Style="{StaticResource SubText}" Margin="24,0,0,14" />
+
+                <TextBlock Text="TMDB API Key" Style="{StaticResource SubText}" Margin="0,0,0,4" />
+                <TextBlock Text="在 themoviedb.org 免费申请 v3 Key 后填入；留空则不显示 TMDB 评分"
+                           Style="{StaticResource SubText}" FontSize="11" Margin="0,0,0,6" />
+                <TextBox x:Name="TmdbKeyBox" FontSize="13" Padding="10,7" Margin="0,0,0,20"
+                         Background="{StaticResource SurfaceBrush}" Foreground="{StaticResource TextBrush}"
+                         CaretBrush="{StaticResource TextBrush}" BorderBrush="{StaticResource BorderBrush}"
+                         BorderThickness="1" />
+
+                <Border Style="{StaticResource Divider}" Margin="0,0,0,18" />
+
                 <TextBlock Text="播放" Style="{StaticResource SectionText}" Margin="0,0,0,12" />
 
                 <CheckBox x:Name="PassthroughBox" Content="音频直通（AC3 / EAC3 / DTS / TrueHD 原码输出）"
