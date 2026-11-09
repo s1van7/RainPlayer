@@ -44,7 +44,7 @@ jobs:
         run: bash scripts/ci-build.sh
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: rain-apk
           path: artifacts/*.apk
