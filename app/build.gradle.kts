@@ -18,7 +18,7 @@ val keystoreProps = Properties().apply {
 fun signingValue(propKey: String, envKey: String): String? =
     keystoreProps.getProperty(propKey) ?: System.getenv(envKey)
 
-val releaseStorePath = signingValue("storeFile", "LUMEN_STORE_FILE")
+val releaseStorePath = signingValue("storeFile", "RAINPLAYER_STORE_FILE")
 val hasReleaseKeystore = releaseStorePath != null && rootProject.file(releaseStorePath).exists()
 
 android {
@@ -40,9 +40,9 @@ android {
         if (hasReleaseKeystore) {
             create("release") {
                 storeFile = rootProject.file(releaseStorePath!!)
-                storePassword = signingValue("storePassword", "LUMEN_STORE_PASSWORD")
-                keyAlias = signingValue("keyAlias", "LUMEN_KEY_ALIAS")
-                keyPassword = signingValue("keyPassword", "LUMEN_KEY_PASSWORD")
+                storePassword = signingValue("storePassword", "RAINPLAYER_STORE_PASSWORD")
+                keyAlias = signingValue("keyAlias", "RAINPLAYER_KEY_ALIAS")
+                keyPassword = signingValue("keyPassword", "RAINPLAYER_KEY_PASSWORD")
                 enableV1Signing = true
                 enableV2Signing = true
             }

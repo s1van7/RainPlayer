@@ -31,3 +31,6 @@ Thumbs.db
 # CI 产物
 artifacts/
 release-keystore.jks
+
+# 本地密钥备份
+*.bak
