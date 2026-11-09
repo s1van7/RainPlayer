@@ -31,6 +31,27 @@ else
 fi
 
 echo "==> 开始编译"
+
+# 若仓库配置了签名 Secrets，就用正式密钥签名，保证 CI 产物能与 Release 包互相覆盖安装；
+# 没有配置则回退到 debug 签名（能装，但签名与 Release 包不同）。
+if [ -n "${KEYSTORE_BASE64:-}" ]; then
+  echo "==> 使用 Secrets 中的发布签名"
+  printf '%s' "$KEYSTORE_BASE64" | tr -d '\n' | base64 -d > release-keystore.jks 2>/dev/null || true
+  if [ ! -s release-keystore.jks ]; then
+    echo "!! KEYSTORE_BASE64 解码失败，检查 Secret 是否为完整的 base64" >&2
+    exit 1
+  fi
+  {
+    echo "storeFile=release-keystore.jks"
+    echo "storePassword=${KEYSTORE_PASSWORD:-}"
+    echo "keyAlias=${KEY_ALIAS:-}"
+    echo "keyPassword=${KEY_PASSWORD:-}"
+  } > keystore.properties
+else
+  echo "==> 未配置 KEYSTORE_BASE64，使用 debug 签名"
+  echo "   （此产物与 Release 页的包签名不同，不能互相覆盖安装）"
+fi
+
 chmod +x ./gradlew
 ./gradlew :app:assembleRelease --no-daemon --stacktrace
 BUILD_STATUS=$?

@@ -36,6 +36,11 @@ jobs:
       # 构建逻辑都在 scripts/ci-build.sh 里：复用 runner 预装的 SDK，
       # 避开 setup-android 执行 `sdkmanager tools` 在新版 cmdline-tools 上失败的问题。
       - name: Build release APK
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: bash scripts/ci-build.sh
 
       - name: Upload artifacts

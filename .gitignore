@@ -30,3 +30,4 @@ Thumbs.db
 
 # CI 产物
 artifacts/
+release-keystore.jks
