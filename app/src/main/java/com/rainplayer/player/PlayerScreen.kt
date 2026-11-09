@@ -100,52 +100,7 @@ fun PlayerScreen(
     var dragging by remember { mutableStateOf(false) }
     var dragValue by remember { mutableStateOf(0f) }
 
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .pointerInput(ui.panel) {
-                awaitEachGesture {
-                    val down = awaitFirstDown(requireUnconsumed = true)
-                    val width = size.width.toFloat().coerceAtLeast(1f)
-                    val height = size.height.toFloat().coerceAtLeast(1f)
-                    val leftSide = down.position.x < width / 2f
-                    var lastY = down.position.y
-                    var dragged = false
-                    var boosting = false
-                    val downTime = System.currentTimeMillis()
-                    var pointerId = down.id
-
-                    while (true) {
-                        val event = awaitPointerEvent()
-                        val change = event.changes.firstOrNull { it.id == pointerId } ?: break
-                        if (!change.pressed) {
-                            if (boosting) onSpeedBoost(false, leftSide)
-                            else if (!dragged && System.currentTimeMillis() - downTime < 400) {
-                                onToggleControls()
-                            }
-                            break
-                        }
-                        val totalDy = change.position.y - down.position.y
-                        val totalDx = change.position.x - down.position.x
-                        if (!dragged && (abs(totalDy) > 26f || abs(totalDx) > 26f)) dragged = true
-
-                        if (dragged && !boosting) {
-                            // 上滑为增大：屏幕坐标 y 向下为正，取负
-                            val delta = -(change.position.y - lastY) / height * 1.6f
-                            if (leftSide) onBrightnessDelta(delta) else onVolumeDelta(delta)
-                            change.consume()
-                        } else if (!dragged && !boosting &&
-                            System.currentTimeMillis() - downTime > 480
-                        ) {
-                            boosting = true
-                            onSpeedBoost(true, !leftSide)
-                        }
-                        lastY = change.position.y
-                        pointerId = change.id
-                    }
-                }
-            }
-    ) {
+    Box(Modifier.fillMaxSize()) {
         // 视频画面
         AndroidView(
             modifier = Modifier.fillMaxSize(),
@@ -188,6 +143,55 @@ fun PlayerScreen(
                     if (view.parent == null) container.addView(view)
                 }
             }
+        )
+
+        // 手势覆盖层：放在视频之上、控件之下，保证滑动手势不会被 PlayerView 吞掉
+        Box(
+            Modifier
+                .fillMaxSize()
+                .pointerInput(ui.panel) {
+                    awaitEachGesture {
+                        // 只处理没人消费的触摸：控制条上的按钮点击不会被误判成「点击画面」
+                        val down = awaitFirstDown(requireUnconsumed = true)
+                        val width = size.width.toFloat().coerceAtLeast(1f)
+                        val height = size.height.toFloat().coerceAtLeast(1f)
+                        val leftSide = down.position.x < width / 2f
+                        var lastY = down.position.y
+                        var dragged = false
+                        var boosting = false
+                        val downTime = System.currentTimeMillis()
+                        var pointerId = down.id
+
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            val change = event.changes.firstOrNull { it.id == pointerId } ?: break
+                            if (!change.pressed) {
+                                if (boosting) onSpeedBoost(false, leftSide)
+                                else if (!dragged && System.currentTimeMillis() - downTime < 400) {
+                                    onToggleControls()
+                                }
+                                break
+                            }
+                            val totalDy = change.position.y - down.position.y
+                            val totalDx = change.position.x - down.position.x
+                            if (!dragged && (abs(totalDy) > 26f || abs(totalDx) > 26f)) dragged = true
+
+                            if (dragged && !boosting) {
+                                // 上滑为增大：屏幕坐标 y 向下为正，取负
+                                val delta = -(change.position.y - lastY) / height * 1.6f
+                                if (leftSide) onBrightnessDelta(delta) else onVolumeDelta(delta)
+                                change.consume()
+                            } else if (!dragged && !boosting &&
+                                System.currentTimeMillis() - downTime > 480
+                            ) {
+                                boosting = true
+                                onSpeedBoost(true, !leftSide)
+                            }
+                            lastY = change.position.y
+                            pointerId = change.id
+                        }
+                    }
+                }
         )
 
         if (ui.buffering && ui.error == null) {
