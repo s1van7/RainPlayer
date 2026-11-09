@@ -47,7 +47,11 @@ import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import androidx.compose.ui.platform.LocalContext
 import com.rainplayer.data.MediaCard
+import com.rainplayer.data.MediaType
 import com.rainplayer.ui.theme.RainPlayerAccent
+import com.rainplayer.ui.theme.RainPlayerFill
+import com.rainplayer.ui.theme.RainPlayerGold
+import com.rainplayer.ui.theme.RainPlayerStroke
 import com.rainplayer.ui.theme.RainPlayerSurfaceHigh
 import com.rainplayer.ui.theme.RainPlayerText
 import com.rainplayer.ui.theme.RainPlayerTextDim
@@ -105,7 +109,7 @@ fun RainPlayerButton(
                     focused && primary -> Color.White
                     focused -> RainPlayerAccent
                     primary -> RainPlayerAccent
-                    else -> Color(0x22FFFFFF)
+                    else -> RainPlayerFill
                 }
             )
             .border(
@@ -121,7 +125,11 @@ fun RainPlayerButton(
     ) {
         Text(
             text,
-            color = if (focused) Color.Black else Color.White,
+            color = when {
+                focused -> Color.Black
+                primary -> Color.White
+                else -> RainPlayerText
+            },
             fontSize = 14.sp,
             fontWeight = FontWeight.Medium,
         )
@@ -183,7 +191,7 @@ fun PosterCard(
             if (card.played) {
                 Box(
                     Modifier
-                        .align(Alignment.TopEnd)
+                        .align(Alignment.TopStart)
                         .padding(6.dp)
                         .clip(RoundedCornerShape(4.dp))
                         .background(Color(0xAA000000))
@@ -192,11 +200,51 @@ fun PosterCard(
                     Text("已看", color = RainPlayerTextDim, fontSize = 10.sp)
                 }
             }
+            // 剧集：右上角显示总集数
+            val count = card.episodeCount ?: 0
+            if (card.type == MediaType.SERIES && count > 0) {
+                Box(
+                    Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(6.dp)
+                        .clip(RoundedCornerShape(5.dp))
+                        .background(Color(0xB3000000))
+                        .padding(horizontal = 5.dp, vertical = 2.dp)
+                ) {
+                    Text(
+                        "$count 集",
+                        color = Color.White,
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Medium,
+                    )
+                }
+            }
+            // 右下角评分
+            card.rating?.takeIf { it > 0 }?.let { score ->
+                Row(
+                    Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(6.dp)
+                        .clip(RoundedCornerShape(5.dp))
+                        .background(Color(0xB3000000))
+                        .padding(horizontal = 5.dp, vertical = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text("★", color = RainPlayerGold, fontSize = 9.sp)
+                    Spacer(Modifier.width(2.dp))
+                    Text(
+                        "%.1f".format(score),
+                        color = Color.White,
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Medium,
+                    )
+                }
+            }
         }
         Spacer(Modifier.height(6.dp))
         Text(
             card.title,
-            color = if (focused) Color.White else RainPlayerText,
+            color = RainPlayerText,
             fontSize = 13.sp,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
@@ -369,7 +417,7 @@ fun MetaChip(text: String) {
     Box(
         Modifier
             .clip(RoundedCornerShape(6.dp))
-            .background(Color(0x1FFFFFFF))
+            .background(RainPlayerFill)
             .padding(horizontal = 8.dp, vertical = 3.dp)
     ) {
         Text(text, color = RainPlayerTextDim, fontSize = 11.sp)
@@ -382,7 +430,7 @@ fun DividerLine(modifier: Modifier = Modifier) {
         modifier
             .fillMaxWidth()
             .height(1.dp)
-            .background(Color(0x14FFFFFF))
+            .background(RainPlayerStroke)
     )
 }
 

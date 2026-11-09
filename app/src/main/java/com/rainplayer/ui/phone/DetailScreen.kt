@@ -20,6 +20,9 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items as gridItems
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -28,6 +31,7 @@ import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
+import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Subtitles
@@ -57,6 +61,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
 import coil.compose.AsyncImage
 import com.rainplayer.data.Episode
 import com.rainplayer.data.MediaDetail
@@ -116,6 +121,8 @@ fun DetailScreen(
     var seriesSeasons by remember { mutableStateOf<List<Season>>(emptyList()) }
     var siblings by remember { mutableStateOf<List<Episode>>(emptyList()) }
     var episodeSeasonId by remember { mutableStateOf<String?>(null) }
+    /** 选集条最右侧「全部集数」九宫格。 */
+    var showAllEpisodes by remember { mutableStateOf(false) }
 
     var options by remember { mutableStateOf<PlaybackOptions?>(null) }
     var versionId by remember { mutableStateOf<String?>(null) }
@@ -576,32 +583,58 @@ fun DetailScreen(
                                     }
                                 }
 
-                                LazyRow(
-                                    contentPadding = PaddingValues(horizontal = 20.dp, vertical = 8.dp),
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                ) {
-                                    items(siblings, key = { it.id }) { ep ->
-                                        val selected = ep.id == itemId
-                                        Box(
-                                            Modifier
-                                                .clip(RoundedCornerShape(9.dp))
-                                                .background(
-                                                    if (selected) RainPlayerAccent
-                                                    else RainPlayerSurface
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    LazyRow(
+                                        Modifier.weight(1f),
+                                        contentPadding = PaddingValues(
+                                            start = 20.dp, end = 10.dp, top = 8.dp, bottom = 8.dp,
+                                        ),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    ) {
+                                        items(siblings, key = { it.id }) { ep ->
+                                            val selected = ep.id == itemId
+                                            Box(
+                                                Modifier
+                                                    .clip(RoundedCornerShape(9.dp))
+                                                    .background(
+                                                        if (selected) RainPlayerAccent
+                                                        else RainPlayerSurface
+                                                    )
+                                                    .clickable {
+                                                        if (!selected) onReplaceDetail(ep.id, ep.title)
+                                                    }
+                                                    .padding(horizontal = 14.dp, vertical = 9.dp)
+                                            ) {
+                                                Text(
+                                                    "${ep.index}",
+                                                    color = if (selected) Color.Black else RainPlayerText,
+                                                    fontSize = 12.sp,
+                                                    fontWeight = if (selected) FontWeight.SemiBold
+                                                    else FontWeight.Normal,
                                                 )
-                                                .clickable {
-                                                    if (!selected) onReplaceDetail(ep.id, ep.title)
-                                                }
-                                                .padding(horizontal = 14.dp, vertical = 9.dp)
-                                        ) {
-                                            Text(
-                                                if (selected) "第 ${ep.index} 集" else "${ep.index}",
-                                                color = if (selected) Color.Black else RainPlayerText,
-                                                fontSize = 12.sp,
-                                                fontWeight = if (selected) FontWeight.SemiBold
-                                                else FontWeight.Normal,
-                                            )
+                                            }
                                         }
+                                    }
+                                    // 最右边：直接跳集号（九宫格）
+                                    Box(
+                                        Modifier
+                                            .padding(end = 20.dp)
+                                            .clip(RoundedCornerShape(9.dp))
+                                            .background(RainPlayerAccent.copy(alpha = 0.16f))
+                                            .border(
+                                                1.dp,
+                                                RainPlayerAccent.copy(alpha = 0.45f),
+                                                RoundedCornerShape(9.dp),
+                                            )
+                                            .clickable { showAllEpisodes = true }
+                                            .padding(horizontal = 11.dp, vertical = 9.dp)
+                                    ) {
+                                        Icon(
+                                            Icons.Filled.GridView,
+                                            contentDescription = "全部集数",
+                                            tint = RainPlayerAccent,
+                                            modifier = Modifier.size(16.dp),
+                                        )
                                     }
                                 }
                             }
@@ -816,6 +849,77 @@ fun DetailScreen(
                                     modifier = Modifier.weight(1f),
                                 )
                             }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if (showAllEpisodes && siblings.isNotEmpty()) {
+        EpisodeGridDialog(
+            episodes = siblings,
+            currentId = itemId,
+            subtitle = currentEpisode?.let { "第 ${it.seasonIndex} 季 · 共 ${siblings.size} 集" },
+            onDismiss = { showAllEpisodes = false },
+            onPick = { ep ->
+                showAllEpisodes = false
+                if (ep.id != itemId) onReplaceDetail(ep.id, ep.title)
+            },
+        )
+    }
+}
+
+/** 全部集数九宫格：6 列，点哪集跳哪集。 */
+@Composable
+private fun EpisodeGridDialog(
+    episodes: List<Episode>,
+    currentId: String,
+    subtitle: String?,
+    onDismiss: () -> Unit,
+    onPick: (Episode) -> Unit,
+) {
+    val p = rainPalette
+    Dialog(onDismissRequest = onDismiss) {
+        GlassSurface(
+            Modifier.fillMaxWidth().heightIn(max = 460.dp),
+            shape = RoundedCornerShape(20.dp),
+            level = 2,
+        ) {
+            Column(Modifier.padding(16.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("选集", color = RainPlayerText, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                    subtitle?.let {
+                        Spacer(Modifier.width(8.dp))
+                        Text(it, color = RainPlayerTextDim, fontSize = 11.sp)
+                    }
+                }
+                Spacer(Modifier.height(12.dp))
+                LazyVerticalGrid(
+                    columns = GridCells.Fixed(6),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    gridItems(episodes, key = { it.id }) { ep ->
+                        val selected = ep.id == currentId
+                        Box(
+                            Modifier
+                                .height(44.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(
+                                    if (selected) RainPlayerAccent
+                                    else if (p.isLight) Color(0xFFF0F1F5) else p.surfaceHigh
+                                )
+                                .clickable { onPick(ep) },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                "${ep.index}",
+                                color = if (selected) Color.Black else RainPlayerText,
+                                fontSize = 13.sp,
+                                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                            )
                         }
                     }
                 }
@@ -1086,7 +1190,7 @@ private fun EpisodeRow(ep: Episode, seriesTitle: String, onClick: () -> Unit) {
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
             Text(
-                "S%02dE%02d · %s".format(ep.seasonIndex, ep.index, ep.title),
+                if (ep.index > 0) "${ep.index} · ${ep.title}" else ep.title,
                 color = RainPlayerText,
                 fontSize = 13.sp,
                 maxLines = 1,

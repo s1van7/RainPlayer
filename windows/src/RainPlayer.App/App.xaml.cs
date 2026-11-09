@@ -28,7 +28,7 @@ public partial class App : Application
         };
 
         Settings = AppSettings.Load();
-        ThemeManager.Apply(Settings.ThemeKey, Settings.GlassEffect);
+        ThemeManager.Apply(Settings.ThemeKey, Settings.GlassEffect, Settings.ThemeMode);
 
         var server = Settings.CurrentServer();
         if (server != null)

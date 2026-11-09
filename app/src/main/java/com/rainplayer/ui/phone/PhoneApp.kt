@@ -150,6 +150,21 @@ private fun PhoneScaffold(session: AppSession, onLogout: () -> Unit) {
 
     BackHandler(enabled = stack.size > 1) { stack.removeAt(stack.lastIndex) }
 
+    // 首页再按一次返回才退出，避免误触直接杀掉应用
+    val hostContext = androidx.compose.ui.platform.LocalContext.current
+    var lastBackAt by remember { mutableStateOf(0L) }
+    BackHandler(enabled = stack.size == 1) {
+        val now = System.currentTimeMillis()
+        if (now - lastBackAt in 1..2000) {
+            (hostContext as? android.app.Activity)?.finish()
+        } else {
+            lastBackAt = now
+            android.widget.Toast
+                .makeText(hostContext, "再按一次退出", android.widget.Toast.LENGTH_SHORT)
+                .show()
+        }
+    }
+
     val showNav = stack.size == 1
     var navVisible by remember { mutableStateOf(true) }
     var lastScrollAt by remember { mutableStateOf(0L) }
@@ -275,24 +290,35 @@ private fun FloatingNavBar(current: Dest, onSelect: (Dest) -> Unit) {
     )
     Row(
         Modifier
-            .padding(bottom = 16.dp)
-            .clip(RoundedCornerShape(28.dp))
-            .background(p.surface.copy(alpha = 0.94f))
-            .border(1.dp, Color(0x1FFFFFFF), RoundedCornerShape(28.dp))
-            .padding(horizontal = 8.dp, vertical = 7.dp),
-        horizontalArrangement = Arrangement.spacedBy(2.dp),
+            .padding(bottom = 18.dp)
+            .clip(RoundedCornerShape(percent = 50))
+            .background(
+                if (p.isLight) Color.White.copy(alpha = 0.72f) else p.surface.copy(alpha = 0.62f)
+            )
+            .background(
+                androidx.compose.ui.graphics.Brush.verticalGradient(
+                    listOf(Color.White.copy(alpha = 0.12f), Color.Transparent)
+                )
+            )
+            .border(
+                1.dp,
+                if (p.isLight) Color(0x1A000000) else Color(0x2EFFFFFF),
+                RoundedCornerShape(percent = 50),
+            )
+            .padding(horizontal = 12.dp, vertical = 9.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         tabs.forEach { (dest, label, icon) ->
             val selected = current == dest
             Column(
                 Modifier
-                    .clip(RoundedCornerShape(22.dp))
+                    .clip(RoundedCornerShape(percent = 50))
                     .background(
-                        if (selected) RainPlayerAccent.copy(alpha = 0.16f) else Color.Transparent
+                        if (selected) RainPlayerAccent.copy(alpha = 0.18f) else Color.Transparent
                     )
                     .clickable { onSelect(dest) }
-                    .padding(horizontal = 18.dp, vertical = 6.dp),
+                    .padding(horizontal = 30.dp, vertical = 8.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 Icon(
@@ -443,34 +469,34 @@ private fun HomeHeader(
         Box {
             Row(
                 Modifier
-                    .clip(RoundedCornerShape(30.dp))
+                    .clip(RoundedCornerShape(percent = 50))
                     .background(
                         if (onImage) Color(0xF0FFFFFF) else Color.Transparent
                     )
                     .border(
                         width = if (onImage) 1.dp else 0.dp,
                         color = if (onImage) Color(0x33FFFFFF) else Color.Transparent,
-                        shape = RoundedCornerShape(30.dp),
+                        shape = RoundedCornerShape(percent = 50),
                     )
                     .clickable { onMenuOpenChange(true) }
                     .padding(
-                        start = if (onImage) 6.dp else 4.dp,
-                        end = if (onImage) 12.dp else 4.dp,
-                        top = if (onImage) 6.dp else 6.dp,
-                        bottom = if (onImage) 6.dp else 6.dp,
+                        start = if (onImage) 4.dp else 3.dp,
+                        end = if (onImage) 10.dp else 3.dp,
+                        top = 4.dp,
+                        bottom = 4.dp,
                     ),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 if (active != null) {
-                    ServerAvatar(active, 34.dp, circle = onImage)
-                    Spacer(Modifier.width(9.dp))
+                    ServerAvatar(active, 26.dp, circle = onImage)
+                    Spacer(Modifier.width(7.dp))
                 }
                 Column(Modifier.weight(1f, fill = false)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
                             active?.name ?: "RainPlayer",
                             color = if (onImage) Color(0xFF1B1F26) else RainPlayerText,
-                            fontSize = 16.sp,
+                            fontSize = 14.sp,
                             fontWeight = FontWeight.SemiBold,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
@@ -479,7 +505,7 @@ private fun HomeHeader(
                             Icons.Filled.KeyboardArrowDown,
                             contentDescription = "服务器菜单",
                             tint = if (onImage) Color(0x99000000) else RainPlayerTextDim,
-                            modifier = Modifier.size(18.dp),
+                            modifier = Modifier.size(15.dp),
                         )
                     }
                     if (!onImage) {
@@ -556,18 +582,39 @@ private fun ServerMenu(
     onLogout: () -> Unit,
 ) {
     val p = rainPalette
+
+    // 打开菜单时拉一次服务器统计（失败就不显示这一行）
+    var counts by remember(expanded, session.activeId) {
+        mutableStateOf<com.rainplayer.data.ServerCounts?>(null)
+    }
+    LaunchedEffect(expanded, session.activeId) {
+        if (!expanded) return@LaunchedEffect
+        counts = null
+        val b = session.backend ?: return@LaunchedEffect
+        counts = runCatching { b.counts() }.getOrNull()
+    }
+
     DropdownMenu(
         expanded = expanded,
         onDismissRequest = onDismiss,
         containerColor = p.surface,
         shape = RoundedCornerShape(16.dp),
     ) {
-        Text(
-            "服务器",
-            color = RainPlayerTextDim,
-            fontSize = 10.sp,
-            modifier = Modifier.padding(start = 16.dp, top = 6.dp, bottom = 2.dp),
-        )
+        Column(Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 4.dp)) {
+            Text("服务器", color = RainPlayerTextDim, fontSize = 10.sp)
+            counts?.takeIf { !it.isEmpty }?.let { c ->
+                Spacer(Modifier.height(3.dp))
+                Text(
+                    buildString {
+                        append("电影 ${c.movies} · 剧集 ${c.series}")
+                        if (c.episodes > 0) append(" · 单集 ${c.episodes}")
+                    },
+                    color = RainPlayerAccent,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Medium,
+                )
+            }
+        }
         session.servers.forEach { cfg ->
             val selected = cfg.id == session.activeId
             DropdownMenuItem(

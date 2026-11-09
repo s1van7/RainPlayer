@@ -36,7 +36,11 @@ object Graph {
     fun init(application: Application) {
         app = application
         prefs = Prefs(application)
-        ThemeState.apply(AppTheme.of(prefs.themeKey), prefs.glassEffect)
+        ThemeState.apply(
+            AppTheme.of(prefs.themeKey),
+            prefs.glassEffect,
+            com.rainplayer.ui.theme.ThemeMode.of(prefs.themeMode),
+        )
         migrate()
     }
 

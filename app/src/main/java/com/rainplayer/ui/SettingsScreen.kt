@@ -37,6 +37,7 @@ import com.rainplayer.ui.theme.RainPlayerAccent
 import com.rainplayer.ui.theme.RainPlayerSurface
 import com.rainplayer.ui.theme.RainPlayerText
 import com.rainplayer.ui.theme.RainPlayerTextDim
+import com.rainplayer.ui.theme.rainPalette
 
 @Composable
 fun SettingsScreen(
@@ -59,6 +60,7 @@ fun SettingsScreen(
     var autoRotate by remember { mutableStateOf(prefs.autoRotate) }
     var theme by remember { mutableStateOf(com.rainplayer.ui.theme.ThemeState.theme) }
     var glass by remember { mutableStateOf(com.rainplayer.ui.theme.ThemeState.glass) }
+    var mode by remember { mutableStateOf(com.rainplayer.ui.theme.ThemeState.mode) }
     var aggregate by remember { mutableStateOf(prefs.aggregateSearch) }
     var daily by remember { mutableStateOf(prefs.dailyRecommend) }
     var douban by remember { mutableStateOf(prefs.doubanRating) }
@@ -82,8 +84,42 @@ fun SettingsScreen(
         Spacer(Modifier.height(18.dp))
 
         Section("外观") {
+            Text("明暗", color = RainPlayerText, fontSize = 13.sp)
+            Spacer(Modifier.height(8.dp))
+            Row(
+                Modifier.fillMaxWidth().padding(bottom = 12.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                com.rainplayer.ui.theme.ThemeMode.entries.forEach { item ->
+                    val selected = item == mode
+                    Box(
+                        Modifier
+                            .weight(1f)
+                            .background(
+                                if (selected) RainPlayerAccent.copy(alpha = 0.20f) else RainPlayerSurface,
+                                RoundedCornerShape(10.dp),
+                            )
+                            .clickable {
+                                mode = item
+                                com.rainplayer.ui.theme.ThemeState.mode = item
+                                prefs.themeMode = item.key
+                            }
+                            .padding(vertical = 10.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            item.displayName,
+                            color = if (selected) RainPlayerAccent else RainPlayerText,
+                            fontSize = 12.sp,
+                            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                        )
+                    }
+                }
+            }
+
             Text("主题", color = RainPlayerText, fontSize = 13.sp)
             Spacer(Modifier.height(8.dp))
+            val lightNow = rainPalette.isLight
             com.rainplayer.ui.theme.AppTheme.entries.chunked(3).forEach { rowThemes ->
                 Row(
                     Modifier.fillMaxWidth().padding(bottom = 8.dp),
@@ -91,11 +127,12 @@ fun SettingsScreen(
                 ) {
                     rowThemes.forEach { item ->
                         val selected = item == theme
+                        val swatch = if (lightNow) item.lightAccent else item.palette.accent
                         Row(
                             Modifier
                                 .weight(1f)
                                 .background(
-                                    if (selected) item.palette.accent.copy(alpha = 0.22f) else RainPlayerSurface,
+                                    if (selected) swatch.copy(alpha = 0.22f) else RainPlayerSurface,
                                     RoundedCornerShape(10.dp),
                                 )
                                 .clickable {
@@ -109,12 +146,12 @@ fun SettingsScreen(
                             Box(
                                 Modifier
                                     .size(12.dp)
-                                    .background(item.palette.accent, RoundedCornerShape(6.dp))
+                                    .background(swatch, RoundedCornerShape(6.dp))
                             )
                             Spacer(Modifier.width(7.dp))
                             Text(
                                 item.displayName,
-                                color = if (selected) item.palette.accent else RainPlayerText,
+                                color = if (selected) swatch else RainPlayerText,
                                 fontSize = 11.sp,
                                 maxLines = 1,
                             )

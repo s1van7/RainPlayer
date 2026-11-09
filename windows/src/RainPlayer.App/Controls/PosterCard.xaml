@@ -28,11 +28,29 @@
                             CornerRadius="0,0,0,10" />
                 </Border>
 
-                <!-- 已看完角标 -->
+                <!-- 已看完角标（左上，右上让给集数） -->
                 <Border x:Name="WatchedBadge" Background="#CC0E1014" CornerRadius="6" Padding="7,3"
-                        HorizontalAlignment="Right" VerticalAlignment="Top" Margin="8"
+                        HorizontalAlignment="Left" VerticalAlignment="Top" Margin="8"
                         Visibility="Collapsed">
                     <TextBlock Text="已看完" FontSize="10.5" Foreground="{StaticResource SubTextBrush}" />
+                </Border>
+
+                <!-- 剧集总集数（右上角） -->
+                <Border x:Name="EpisodeBadge" Background="#B3000000" CornerRadius="6" Padding="7,3"
+                        HorizontalAlignment="Right" VerticalAlignment="Top" Margin="8"
+                        Visibility="Collapsed">
+                    <TextBlock x:Name="EpisodeBadgeText" FontSize="10.5" Foreground="White" />
+                </Border>
+
+                <!-- 评分（右下角） -->
+                <Border x:Name="RatingBadge" Background="#B3000000" CornerRadius="6" Padding="7,3"
+                        HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="8,0,8,9"
+                        Visibility="Collapsed">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="★" FontSize="10" Foreground="#F5C451" VerticalAlignment="Center" />
+                        <TextBlock x:Name="RatingBadgeText" FontSize="10.5" Foreground="White"
+                                   Margin="3,0,0,0" VerticalAlignment="Center" />
+                    </StackPanel>
                 </Border>
 
                 <!-- 悬停播放提示 -->

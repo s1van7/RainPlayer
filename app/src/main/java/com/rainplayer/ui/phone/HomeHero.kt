@@ -125,16 +125,26 @@ fun DailyHero(
                             )
                         )
                 )
-                // 底部渐到页面底色，和下方内容自然衔接
+                // 底部渐到页面底色，和下方内容自然衔接。
+                // 浅色模式下文字改成深色，所以渐变要更早压到实色，否则读不清。
                 Box(
                     Modifier
                         .fillMaxSize()
                         .background(
-                            Brush.verticalGradient(
-                                0.35f to Color.Transparent,
-                                0.72f to p.bg.copy(alpha = 0.72f),
-                                1f to p.bg,
-                            )
+                            if (p.isLight) {
+                                Brush.verticalGradient(
+                                    0.30f to Color.Transparent,
+                                    0.58f to p.bg.copy(alpha = 0.88f),
+                                    0.78f to p.bg,
+                                    1f to p.bg,
+                                )
+                            } else {
+                                Brush.verticalGradient(
+                                    0.35f to Color.Transparent,
+                                    0.72f to p.bg.copy(alpha = 0.72f),
+                                    1f to p.bg,
+                                )
+                            }
                         )
                 )
 
@@ -147,7 +157,7 @@ fun DailyHero(
                 ) {
                     Text(
                         detail?.title ?: card.title,
-                        color = Color.White,
+                        color = if (p.isLight) Color(0xFF12161C) else Color.White,
                         fontSize = 25.sp,
                         fontWeight = FontWeight.Bold,
                         maxLines = 2,
@@ -179,7 +189,7 @@ fun DailyHero(
                         if (meta.isNotBlank()) {
                             Text(
                                 meta,
-                                color = Color(0xCCFFFFFF),
+                                color = if (p.isLight) Color(0xCC161A20.toInt()) else Color(0xCCFFFFFF),
                                 fontSize = 12.sp,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
@@ -190,7 +200,7 @@ fun DailyHero(
                     (detail?.overview ?: card.subtitle)?.takeIf { it.isNotBlank() }?.let {
                         Text(
                             it,
-                            color = Color(0xB3FFFFFF),
+                            color = if (p.isLight) Color(0xB3161A20.toInt()) else Color(0xB3FFFFFF),
                             fontSize = 12.sp,
                             lineHeight = 18.sp,
                             maxLines = 3,

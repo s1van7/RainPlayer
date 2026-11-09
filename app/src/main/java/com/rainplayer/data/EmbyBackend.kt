@@ -106,7 +106,7 @@ class EmbyBackend(override val config: ServerConfig) : MediaBackend {
             val text = Http.getText(
                 url(
                     "/Users/$userId/Items/Resume?Limit=20&MediaTypes=Video" +
-                        "&Fields=PrimaryImageTag,ProductionYear,RunTimeTicks,UserData,BackdropImageTags" +
+                        "&Fields=PrimaryImageTag,ProductionYear,RunTimeTicks,UserData,BackdropImageTags,ChildCount,RecursiveItemCount" +
                         "&ImageTypeLimit=1&EnableImageTypes=Primary,Backdrop"
                 ),
                 tokenHeaders()
@@ -121,7 +121,7 @@ class EmbyBackend(override val config: ServerConfig) : MediaBackend {
                 val text = Http.getText(
                     url(
                         "/Users/$userId/Items/Latest?ParentId=${library.id}&Limit=18" +
-                            "&Fields=PrimaryImageTag,ProductionYear,RunTimeTicks,UserData,BackdropImageTags" +
+                            "&Fields=PrimaryImageTag,ProductionYear,RunTimeTicks,UserData,BackdropImageTags,ChildCount,RecursiveItemCount" +
                             "&ImageTypeLimit=1&EnableImageTypes=Primary,Backdrop"
                     ),
                     tokenHeaders()
@@ -142,7 +142,7 @@ class EmbyBackend(override val config: ServerConfig) : MediaBackend {
                 "/Users/$userId/Items?ParentId=${q(libraryId)}&Recursive=true" +
                     "&IncludeItemTypes=Movie,Series,Video,Folder&SortBy=SortName&SortOrder=Ascending" +
                     "&StartIndex=$startIndex&Limit=$limit" +
-                    "&Fields=PrimaryImageTag,ProductionYear,RunTimeTicks,UserData,BackdropImageTags,CommunityRating" +
+                    "&Fields=PrimaryImageTag,ProductionYear,RunTimeTicks,UserData,BackdropImageTags,CommunityRating,ChildCount,RecursiveItemCount" +
                     "&ImageTypeLimit=1&EnableImageTypes=Primary,Backdrop"
             ),
             tokenHeaders()
@@ -157,7 +157,7 @@ class EmbyBackend(override val config: ServerConfig) : MediaBackend {
             url(
                 "/Users/$userId/Items?SearchTerm=${q(query)}&Recursive=true&Limit=60" +
                     "&IncludeItemTypes=Movie,Series,Episode,Video" +
-                    "&Fields=PrimaryImageTag,ProductionYear,RunTimeTicks,UserData,CommunityRating" +
+                    "&Fields=PrimaryImageTag,ProductionYear,RunTimeTicks,UserData,CommunityRating,ChildCount,RecursiveItemCount" +
                     "&ImageTypeLimit=1&EnableImageTypes=Primary"
             ),
             tokenHeaders()
@@ -234,12 +234,24 @@ class EmbyBackend(override val config: ServerConfig) : MediaBackend {
         val text = Http.getText(
             url(
                 "/Items/$itemId/Similar?UserId=$userId&Limit=$limit" +
-                    "&Fields=PrimaryImageTag,ProductionYear,RunTimeTicks,UserData,BackdropImageTags,CommunityRating" +
+                    "&Fields=PrimaryImageTag,ProductionYear,RunTimeTicks,UserData,BackdropImageTags,CommunityRating,ChildCount,RecursiveItemCount" +
                     "&ImageTypeLimit=1&EnableImageTypes=Primary,Backdrop"
             ),
             tokenHeaders()
         )
         return J.obj(text)?.arr("Items").orEmpty().mapNotNull { mapCard(it.asObj()) }
+    }
+
+    /** /Items/Counts 给的是整台服务器的统计，Emby 与 Jellyfin 都支持。 */
+    override suspend fun counts(): ServerCounts? {
+        val text = runCatching { Http.getText(url("/Items/Counts"), tokenHeaders()) }.getOrNull()
+            ?: return null
+        val o = J.obj(text) ?: return null
+        return ServerCounts(
+            movies = o.int("MovieCount") ?: 0,
+            series = o.int("SeriesCount") ?: 0,
+            episodes = o.int("EpisodeCount") ?: 0,
+        )
     }
 
     /** 单集详情：补上所属剧集、播出日期、剧照。 */
@@ -767,15 +779,18 @@ class EmbyBackend(override val config: ServerConfig) : MediaBackend {
             rating = o.dbl("CommunityRating"),
             progressMs = ticksToMs(ud?.long("PlaybackPositionTicks") ?: 0L),
             durationMs = ticksToMs(o.long("RunTimeTicks")),
+            // 剧集总集数：RecursiveItemCount 是整部剧的集数，ChildCount 是直属子项（季）
+            episodeCount = if (type == MediaType.SERIES) {
+                o.int("RecursiveItemCount")?.takeIf { it > 0 } ?: o.int("ChildCount")
+            } else null,
         )
     }
 
     private fun subtitleOf(o: JsonObject, type: MediaType): String? {
         return when (type) {
             MediaType.EPISODE -> {
-                val s = o.int("ParentIndexNumber") ?: 0
                 val e = o.int("IndexNumber") ?: 0
-                "S${s.toString().padStart(2, '0')}E${e.toString().padStart(2, '0')}"
+                if (e > 0) "第 $e 集" else null
             }
             MediaType.SERIES -> o.int("ProductionYear")?.toString()
             else -> o.int("ProductionYear")?.toString()

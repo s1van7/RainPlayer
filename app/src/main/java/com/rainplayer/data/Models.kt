@@ -220,7 +220,18 @@ data class MediaCard(
     /** 剧集单集所属的季号，用于列表副标题。 */
     val seasonNumber: Int? = null,
     val episodeNumber: Int? = null,
+    /** 剧集的总集数（服务器给的 RecursiveItemCount / ChildCount），封面右上角角标用。 */
+    val episodeCount: Int? = null,
 )
+
+/** 服务器上的内容总量，服务器菜单里显示「电影 N · 剧集 M」。 */
+data class ServerCounts(
+    val movies: Int = 0,
+    val series: Int = 0,
+    val episodes: Int = 0,
+) {
+    val isEmpty: Boolean get() = movies == 0 && series == 0
+}
 
 data class Library(
     val id: String,
@@ -259,10 +270,10 @@ data class Episode(
     /** 单集自己的背景图，详情页大图用。 */
     val backdropUrl: String? = null,
 ) {
-    /** 例：S02E05 · 42 分钟 */
+    /** 例：第 5 集 · 42 分钟（只显示集号，不显示 SxxExx） */
     val label: String
         get() = buildString {
-            append("S%02dE%02d".format(seasonIndex, index))
+            if (index > 0) append("第 $index 集") else append("单集")
             runtimeMinutes?.takeIf { it > 0 }?.let { append(" · ").append("$it 分钟") }
         }
 }

@@ -32,6 +32,9 @@ public sealed class AppSettings
     /// <summary>毛玻璃效果：半透明面板，让背景隐约透出来。</summary>
     public bool GlassEffect { get; set; } = true;
 
+    /// <summary>明暗模式：system / light / dark。</summary>
+    public string ThemeMode { get; set; } = "system";
+
     /// <summary>跨服务器聚合搜索。</summary>
     public bool AggregateSearch { get; set; } = true;
 

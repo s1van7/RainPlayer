@@ -43,6 +43,26 @@ public partial class PosterCard : UserControl
 
         WatchedBadge.Visibility = card.Played ? Visibility.Visible : Visibility.Collapsed;
 
+        if (card.Type == MediaType.Series && card.EpisodeCount is > 0)
+        {
+            EpisodeBadgeText.Text = $"{card.EpisodeCount} 集";
+            EpisodeBadge.Visibility = Visibility.Visible;
+        }
+        else
+        {
+            EpisodeBadge.Visibility = Visibility.Collapsed;
+        }
+
+        if (card.Rating is > 0)
+        {
+            RatingBadgeText.Text = $"{card.Rating:0.0}";
+            RatingBadge.Visibility = Visibility.Visible;
+        }
+        else
+        {
+            RatingBadge.Visibility = Visibility.Collapsed;
+        }
+
         var progress = Math.Clamp(card.Progress, 0, 1);
         if (progress > 0.01)
         {
@@ -80,7 +100,6 @@ public partial class PosterCard : UserControl
         var parts = new List<string>();
         if (!string.IsNullOrWhiteSpace(card.Subtitle)) parts.Add(card.Subtitle!);
         if (card.Year is > 0 && !parts.Contains(card.Year.ToString()!)) parts.Add(card.Year.ToString()!);
-        if (card.Rating is > 0) parts.Add($"★ {card.Rating:0.0}");
         return string.Join(" · ", parts);
     }
 }

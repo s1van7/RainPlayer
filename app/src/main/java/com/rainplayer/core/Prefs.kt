@@ -136,6 +136,11 @@ class Prefs(context: Context) {
         get() = sp.getBoolean("glass_effect", true)
         set(v) = sp.edit().putBoolean("glass_effect", v).apply()
 
+    /** 明暗模式 key：system / light / dark，见 [com.rainplayer.ui.theme.ThemeMode]。 */
+    var themeMode: String
+        get() = sp.getString("theme_mode", "system") ?: "system"
+        set(v) = sp.edit().putString("theme_mode", v).apply()
+
     // ---- 聚合与推荐 ----
 
     /** 跨服务器聚合搜索。 */

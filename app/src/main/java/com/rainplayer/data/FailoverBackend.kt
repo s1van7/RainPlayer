@@ -74,6 +74,8 @@ class FailoverBackend(
     override suspend fun similar(itemId: String, limit: Int): List<MediaCard> =
         withFailover { it.similar(itemId, limit) }
 
+    override suspend fun counts(): ServerCounts? = withFailover { it.counts() }
+
     override suspend fun episode(itemId: String): Episode = withFailover { it.episode(itemId) }
 
     override suspend fun seasons(seriesId: String): List<Season> = withFailover { it.seasons(seriesId) }

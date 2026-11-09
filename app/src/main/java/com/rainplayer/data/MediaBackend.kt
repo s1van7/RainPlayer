@@ -26,6 +26,9 @@ interface MediaBackend {
     /** 「更多类似作品」推荐。服务器不支持时返回空列表，UI 自动隐藏该区块。 */
     suspend fun similar(itemId: String, limit: Int = 12): List<MediaCard> = emptyList()
 
+    /** 服务器上的影片 / 剧集数量。不支持的后端返回 null，菜单里就不显示这一行。 */
+    suspend fun counts(): ServerCounts? = null
+
     /** 单集详情（剧集列表点进去的那一集）。默认用 [detail] 兜底。 */
     suspend fun episode(itemId: String): Episode {
         val d = detail(itemId)

@@ -254,6 +254,9 @@ public sealed class MediaCard
     public int? Year { get; set; }
     public double? Rating { get; set; }
 
+    /// <summary>剧集总集数，封面右上角角标用。</summary>
+    public int? EpisodeCount { get; set; }
+
     /// <summary>聚合搜索时标注来源服务器；单服务器场景为 null。</summary>
     public string? ServerId { get; set; }
     public string? AccountId { get; set; }

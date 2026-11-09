@@ -27,6 +27,7 @@ public partial class SettingsWindow : Window
         AutoNextBox.IsChecked = _settings.AutoPlayNext;
         VolumeSlider.Value = _settings.Volume;
 
+        BuildModePicker();
         BuildThemePicker();
         GlassBox.IsChecked = _settings.GlassEffect;
         AggregateBox.IsChecked = _settings.AggregateSearch;
@@ -35,8 +36,8 @@ public partial class SettingsWindow : Window
         TmdbKeyBox.Text = _settings.TmdbApiKey;
 
         // 主题与毛玻璃即时预览，点保存才算最终生效
-        GlassBox.Checked += (_, _) => ThemeManager.Apply(_settings.ThemeKey, true);
-        GlassBox.Unchecked += (_, _) => ThemeManager.Apply(_settings.ThemeKey, false);
+        GlassBox.Checked += (_, _) => ThemeManager.Apply(_settings.ThemeKey, true, _settings.ThemeMode);
+        GlassBox.Unchecked += (_, _) => ThemeManager.Apply(_settings.ThemeKey, false, _settings.ThemeMode);
 
         var version = Assembly.GetExecutingAssembly().GetName().Version;
         VersionText.Text = version == null ? "1.0.0" : $"{version.Major}.{version.Minor}.{version.Build}";
@@ -69,7 +70,7 @@ public partial class SettingsWindow : Window
         _settings.TmdbApiKey = TmdbKeyBox.Text.Trim();
         _settings.Save();
 
-        ThemeManager.Apply(_settings.ThemeKey, _settings.GlassEffect);
+        ThemeManager.Apply(_settings.ThemeKey, _settings.GlassEffect, _settings.ThemeMode);
         RatingsService.ClearCache();
 
         DialogResult = true;
@@ -79,8 +80,41 @@ public partial class SettingsWindow : Window
     private void OnCancelClick(object sender, RoutedEventArgs e)
     {
         // 取消时把预览过的主题恢复回去
-        ThemeManager.Apply(_settings.ThemeKey, _settings.GlassEffect);
+        ThemeManager.Apply(_settings.ThemeKey, _settings.GlassEffect, _settings.ThemeMode);
         Close();
+    }
+
+    /// <summary>明暗模式：跟随系统 / 浅色 / 深色。</summary>
+    private void BuildModePicker()
+    {
+        ModePanel.Children.Clear();
+        var modes = new (string Key, string Name)[]
+        {
+            ("system", "跟随系统"),
+            ("light", "浅色"),
+            ("dark", "深色"),
+        };
+        foreach (var (key, name) in modes)
+        {
+            var isCurrent = key == _settings.ThemeMode;
+            var button = new Button
+            {
+                Content = name,
+                FontSize = 12,
+                Style = (Style)FindResource("GhostButton"),
+                Padding = new Thickness(14, 7, 14, 7),
+                Margin = new Thickness(0, 0, 8, 8),
+            };
+            if (isCurrent) button.BorderBrush = (Brush)FindResource("AccentBrush");
+            button.Click += (_, _) =>
+            {
+                _settings.ThemeMode = key;
+                ThemeManager.Apply(_settings.ThemeKey, GlassBox.IsChecked == true, key);
+                BuildModePicker();
+                BuildThemePicker();
+            };
+            ModePanel.Children.Add(button);
+        }
     }
 
     /// <summary>主题选择器：每个主题一个小色块 + 名称。</summary>
@@ -90,6 +124,7 @@ public partial class SettingsWindow : Window
         foreach (var palette in ThemeManager.All)
         {
             var isCurrent = palette.Key == _settings.ThemeKey;
+            var shown = ThemeManager.IsLight ? ThemeManager.LightOf(palette) : palette;
 
             var row = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
             row.Children.Add(new Border
@@ -97,7 +132,7 @@ public partial class SettingsWindow : Window
                 Width = 12,
                 Height = 12,
                 CornerRadius = new CornerRadius(6),
-                Background = new SolidColorBrush(palette.Accent),
+                Background = new SolidColorBrush(shown.Accent),
                 Margin = new Thickness(0, 0, 7, 0),
             });
             row.Children.Add(new TextBlock
@@ -106,7 +141,7 @@ public partial class SettingsWindow : Window
                 FontSize = 12,
                 VerticalAlignment = VerticalAlignment.Center,
                 Foreground = isCurrent
-                    ? new SolidColorBrush(palette.Accent)
+                    ? new SolidColorBrush(shown.Accent)
                     : (Brush)FindResource("TextBrush"),
             });
 
@@ -117,11 +152,11 @@ public partial class SettingsWindow : Window
                 Padding = new Thickness(10, 7, 10, 7),
                 Margin = new Thickness(0, 0, 8, 8),
             };
-            if (isCurrent) button.BorderBrush = new SolidColorBrush(palette.Accent);
+            if (isCurrent) button.BorderBrush = new SolidColorBrush(shown.Accent);
             button.Click += (_, _) =>
             {
                 _settings.ThemeKey = palette.Key;
-                ThemeManager.Apply(palette, GlassBox.IsChecked == true);
+                ThemeManager.Apply(palette, GlassBox.IsChecked == true, ThemeManager.IsLight);
                 BuildThemePicker();
             };
             ThemePanel.Children.Add(button);

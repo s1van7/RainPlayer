@@ -20,6 +20,9 @@
         <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
             <StackPanel>
                 <TextBlock Text="外观" Style="{StaticResource SectionText}" Margin="0,0,0,10" />
+                <TextBlock Text="明暗" Style="{StaticResource SubText}" Margin="0,0,0,8" />
+                <WrapPanel x:Name="ModePanel" Margin="0,0,0,10" />
+
                 <TextBlock Text="主题" Style="{StaticResource SubText}" Margin="0,0,0,8" />
                 <WrapPanel x:Name="ThemePanel" Margin="0,0,0,10" />
 

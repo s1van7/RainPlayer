@@ -43,6 +43,13 @@ fun GlassBackdrop(
                     0.45f to p.bg,
                     1f to p.bg,
                 )
+            )
+            // 顶部再压一层主题色薄雾：毛玻璃面板浮在上面时才有颜色可「透」
+            .background(
+                Brush.verticalGradient(
+                    0f to p.accent.copy(alpha = if (p.isLight) 0.10f else 0.16f),
+                    0.32f to Color.Transparent,
+                )
             ),
         content = content,
     )
@@ -63,44 +70,54 @@ fun GlassSurface(
 ) {
     val p = rainPalette
     val enabled = LocalGlassEnabled.current
+    val light = p.isLight
 
+    // 底色压得越低、白色高光给得越足，「磨砂玻璃」的通透感越强。
+    // 深色主题靠半透明面板 + 白色高光，浅色主题靠白色半透明 + 淡黑描边。
     val baseAlpha = when (level) {
-        3 -> 0.72f
-        2 -> 0.62f
-        else -> 0.48f
+        3 -> 0.58f
+        2 -> 0.46f
+        else -> 0.34f
     }
-    val tintAlpha = when (level) {
-        3 -> 0.14f
-        2 -> 0.10f
-        else -> 0.06f
+    val tintTop = when (level) {
+        3 -> 0.26f
+        2 -> 0.20f
+        else -> 0.13f
     }
     val borderAlpha = when (level) {
-        3 -> 0.30f
-        2 -> 0.22f
-        else -> 0.14f
+        3 -> 0.36f
+        2 -> 0.28f
+        else -> 0.18f
+    }
+
+    val fill = when {
+        !enabled -> if (light) Color.White else p.surface
+        light -> Color.White.copy(alpha = if (level >= 2) 0.82f else 0.66f)
+        else -> p.surface.copy(alpha = baseAlpha)
+    }
+    val sheen = if (enabled) {
+        Brush.verticalGradient(
+            0f to Color.White.copy(alpha = tintTop),
+            0.55f to Color.White.copy(alpha = tintTop * 0.22f),
+            1f to Color.White.copy(alpha = 0f),
+        )
+    } else {
+        Brush.verticalGradient(listOf(Color.Transparent, Color.Transparent))
+    }
+    val edge = when {
+        !enabled -> Color.Transparent
+        light -> Color.Black.copy(alpha = borderAlpha * 0.55f)
+        else -> Color.White.copy(alpha = borderAlpha)
     }
 
     Box(
         modifier
             .clip(shape)
-            .background(
-                if (enabled) p.surface.copy(alpha = baseAlpha) else p.surface
-            )
-            .background(
-                if (enabled) {
-                    Brush.verticalGradient(
-                        listOf(
-                            Color.White.copy(alpha = tintAlpha * 1.6f),
-                            Color.White.copy(alpha = tintAlpha * 0.35f),
-                        )
-                    )
-                } else {
-                    Brush.verticalGradient(listOf(Color.Transparent, Color.Transparent))
-                }
-            )
+            .background(fill)
+            .background(sheen)
             .border(
                 width = if (enabled) borderWidth else 0.dp,
-                color = if (enabled) Color.White.copy(alpha = borderAlpha) else Color.Transparent,
+                color = edge,
                 shape = shape,
             ),
         content = content,

@@ -70,35 +70,86 @@ public static class ThemeManager
 
     public static bool GlassEnabled { get; private set; } = true;
 
+    /// <summary>当前是否浅色模式（主题决定色相，明暗模式决定底色）。</summary>
+    public static bool IsLight { get; private set; }
+
     public static Palette Find(string? key) =>
         All.FirstOrDefault(p => p.Key == key) ?? All[0];
 
-    /// <summary>应用主题。glass 打开时面板底色带透明度，背景图能透出来。</summary>
-    public static void Apply(string? key, bool glass)
+    /// <summary>
+    /// 浅色变体：底色换成中性灰白，强调色压暗一档，保证在白底上仍然读得清。
+    /// </summary>
+    public static Palette LightOf(Palette dark) => dark with
     {
-        Apply(Find(key), glass);
+        Bg = Hex("#F4F5F9"),
+        Surface = Hex("#FFFFFF"),
+        Card = Hex("#FFFFFF"),
+        CardHover = Hex("#EEF0F5"),
+        Accent = Darken(dark.Accent, 0.42),
+        AccentHover = Darken(dark.Accent, 0.28),
+        Text = Hex("#171B22"),
+        SubText = Hex("#6A7280"),
+        Faint = Hex("#8A929E"),
+        Border = Hex("#DDE1E9"),
+    };
+
+    /// <summary>按明暗模式取实际配色。mode 为 system 时读系统「应用模式」。</summary>
+    public static void Apply(string? key, bool glass, string? mode = null)
+    {
+        var light = mode switch
+        {
+            "light" => true,
+            "dark" => false,
+            _ => SystemPrefersLight(),
+        };
+        Apply(Find(key), glass, light);
     }
 
-    public static void Apply(Palette palette, bool glass)
+    private static bool SystemPrefersLight()
+    {
+        try
+        {
+            using var k = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(
+                @"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize");
+            if (k?.GetValue("AppsUseLightTheme") is int v) return v != 0;
+        }
+        catch
+        {
+            // 读不到注册表就按深色处理
+        }
+        return false;
+    }
+
+    private static Color Darken(Color c, double amount)
+    {
+        var f = 1.0 - Math.Clamp(amount, 0, 1);
+        return Color.FromRgb((byte)(c.R * f), (byte)(c.G * f), (byte)(c.B * f));
+    }
+
+    public static void Apply(Palette palette, bool glass, bool light = false)
     {
         Current = palette;
         GlassEnabled = glass;
+        IsLight = light;
+
+        // 浅色模式用独立的浅色变体，深色沿用主题本色
+        var p = light ? LightOf(palette) : palette;
 
         var res = Application.Current?.Resources;
         if (res == null) return;
 
         // 面板类底色：毛玻璃时降低不透明度
-        Set(res, "BgBrush", palette.Bg);
-        Set(res, "SurfaceBrush", glass ? WithAlpha(palette.Surface, 0xE0) : palette.Surface);
-        Set(res, "CardBrush", glass ? WithAlpha(palette.Card, 0xCC) : palette.Card);
-        Set(res, "CardHoverBrush", glass ? WithAlpha(palette.CardHover, 0xE6) : palette.CardHover);
-        Set(res, "AccentBrush", palette.Accent);
-        Set(res, "AccentHoverBrush", palette.AccentHover);
-        Set(res, "TextBrush", palette.Text);
-        Set(res, "SubTextBrush", palette.SubText);
-        Set(res, "FaintTextBrush", palette.Faint);
-        Set(res, "BorderBrush", palette.Border);
-        Set(res, "GlassBorderBrush", WithAlpha(Colors.White, glass ? (byte)0x24 : (byte)0x00));
+        Set(res, "BgBrush", p.Bg);
+        Set(res, "SurfaceBrush", glass ? WithAlpha(p.Surface, light ? (byte)0xD8 : (byte)0xE0) : p.Surface);
+        Set(res, "CardBrush", glass ? WithAlpha(p.Card, light ? (byte)0xC0 : (byte)0xCC) : p.Card);
+        Set(res, "CardHoverBrush", glass ? WithAlpha(p.CardHover, light ? (byte)0xE0 : (byte)0xE6) : p.CardHover);
+        Set(res, "AccentBrush", p.Accent);
+        Set(res, "AccentHoverBrush", p.AccentHover);
+        Set(res, "TextBrush", p.Text);
+        Set(res, "SubTextBrush", p.SubText);
+        Set(res, "FaintTextBrush", p.Faint);
+        Set(res, "BorderBrush", p.Border);
+        Set(res, "GlassBorderBrush", WithAlpha(light ? Colors.Black : Colors.White, glass ? (light ? (byte)0x18 : (byte)0x24) : (byte)0x00));
     }
 
     private static void Set(ResourceDictionary res, string key, Color color)

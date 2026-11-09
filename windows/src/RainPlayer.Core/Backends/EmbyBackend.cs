@@ -108,7 +108,7 @@ public sealed class EmbyBackend : IMediaBackend
         {
             var text = await Http.GetTextAsync(
                 Url($"/Users/{_userId}/Items/Resume?Limit=20&MediaTypes=Video" +
-                    "&Fields=PrimaryImageTag,ProductionYear,RunTimeTicks,UserData,BackdropImageTags" +
+                    "&Fields=PrimaryImageTag,ProductionYear,RunTimeTicks,UserData,BackdropImageTags,ChildCount,RecursiveItemCount" +
                     "&ImageTypeLimit=1&EnableImageTypes=Primary,Backdrop"),
                 TokenHeaders(), ct).ConfigureAwait(false);
             using var doc = JsonExt.Parse(text);
@@ -138,7 +138,7 @@ public sealed class EmbyBackend : IMediaBackend
             {
                 var text = await Http.GetTextAsync(
                     Url($"/Users/{_userId}/Items/Latest?ParentId={library.Id}&Limit=18" +
-                        "&Fields=PrimaryImageTag,ProductionYear,RunTimeTicks,UserData,BackdropImageTags" +
+                        "&Fields=PrimaryImageTag,ProductionYear,RunTimeTicks,UserData,BackdropImageTags,ChildCount,RecursiveItemCount" +
                         "&ImageTypeLimit=1&EnableImageTypes=Primary,Backdrop"),
                     TokenHeaders(), ct).ConfigureAwait(false);
                 using var doc = JsonExt.Parse(text);
@@ -162,7 +162,7 @@ public sealed class EmbyBackend : IMediaBackend
             Url($"/Users/{_userId}/Items?ParentId={Q(libraryId)}&Recursive=true" +
                 "&IncludeItemTypes=Movie,Series,Video,Folder&SortBy=SortName&SortOrder=Ascending" +
                 $"&StartIndex={startIndex}&Limit={limit}" +
-                "&Fields=PrimaryImageTag,ProductionYear,RunTimeTicks,UserData,BackdropImageTags,CommunityRating" +
+                "&Fields=PrimaryImageTag,ProductionYear,RunTimeTicks,UserData,BackdropImageTags,CommunityRating,ChildCount,RecursiveItemCount" +
                 "&ImageTypeLimit=1&EnableImageTypes=Primary,Backdrop"),
             TokenHeaders(), ct).ConfigureAwait(false);
 
@@ -182,7 +182,7 @@ public sealed class EmbyBackend : IMediaBackend
         var text = await Http.GetTextAsync(
             Url($"/Users/{_userId}/Items?SearchTerm={Q(query)}&Recursive=true&Limit=60" +
                 "&IncludeItemTypes=Movie,Series,Episode,Video" +
-                "&Fields=PrimaryImageTag,ProductionYear,RunTimeTicks,UserData,CommunityRating" +
+                "&Fields=PrimaryImageTag,ProductionYear,RunTimeTicks,UserData,CommunityRating,ChildCount,RecursiveItemCount" +
                 "&ImageTypeLimit=1&EnableImageTypes=Primary"),
             TokenHeaders(), ct).ConfigureAwait(false);
 
@@ -275,7 +275,7 @@ public sealed class EmbyBackend : IMediaBackend
     {
         var text = await Http.GetTextAsync(
             Url($"/Items/{itemId}/Similar?UserId={_userId}&Limit={limit}" +
-                "&Fields=PrimaryImageTag,ProductionYear,RunTimeTicks,UserData,BackdropImageTags,CommunityRating" +
+                "&Fields=PrimaryImageTag,ProductionYear,RunTimeTicks,UserData,BackdropImageTags,CommunityRating,ChildCount,RecursiveItemCount" +
                 "&ImageTypeLimit=1&EnableImageTypes=Primary,Backdrop"),
             TokenHeaders(), ct).ConfigureAwait(false);
 
@@ -889,16 +889,24 @@ public sealed class EmbyBackend : IMediaBackend
             Played = ud.Bool("Played") ?? false,
             Year = element.Int("ProductionYear"),
             Rating = element.Dbl("CommunityRating"),
+            EpisodeCount = type == MediaType.Series ? EpisodeCountOf(element) : null,
         };
+    }
+
+    /// <summary>剧集总集数：优先 RecursiveItemCount，没有就退回 ChildCount。</summary>
+    private static int? EpisodeCountOf(JsonElement element)
+    {
+        var n = element.Int("RecursiveItemCount");
+        if (n is not > 0) n = element.Int("ChildCount");
+        return n is > 0 ? n : null;
     }
 
     private static string? SubtitleOf(JsonElement element, MediaType type)
     {
         if (type == MediaType.Episode)
         {
-            var season = element.Int("ParentIndexNumber") ?? 0;
             var episode = element.Int("IndexNumber") ?? 0;
-            return $"S{season:D2}E{episode:D2}";
+            return episode > 0 ? $"第 {episode} 集" : null;
         }
         return element.Int("ProductionYear")?.ToString();
     }
