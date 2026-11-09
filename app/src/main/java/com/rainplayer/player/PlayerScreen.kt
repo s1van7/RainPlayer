@@ -9,7 +9,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
-import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -26,6 +27,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.BrightnessMedium
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.FastForward
 import androidx.compose.material.icons.filled.FastRewind
@@ -58,7 +60,6 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -91,6 +92,9 @@ fun PlayerScreen(
     onTranscode: () -> Unit,
     onDismissError: () -> Unit,
     onNext: () -> Unit,
+    onBrightnessDelta: (Float) -> Unit,
+    onVolumeDelta: (Float) -> Unit,
+    onSpeedBoost: (active: Boolean, forward: Boolean) -> Unit,
 ) {
     val focusRequester = remember { FocusRequester() }
     var dragging by remember { mutableStateOf(false) }
@@ -99,8 +103,47 @@ fun PlayerScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .pointerInput(Unit) {
-                detectTapGestures(onTap = { onToggleControls() })
+            .pointerInput(ui.panel) {
+                awaitEachGesture {
+                    val down = awaitFirstDown(requireUnconsumed = true)
+                    val width = size.width.toFloat().coerceAtLeast(1f)
+                    val height = size.height.toFloat().coerceAtLeast(1f)
+                    val leftSide = down.position.x < width / 2f
+                    var lastY = down.position.y
+                    var dragged = false
+                    var boosting = false
+                    val downTime = System.currentTimeMillis()
+                    var pointerId = down.id
+
+                    while (true) {
+                        val event = awaitPointerEvent()
+                        val change = event.changes.firstOrNull { it.id == pointerId } ?: break
+                        if (!change.pressed) {
+                            if (boosting) onSpeedBoost(false, leftSide)
+                            else if (!dragged && System.currentTimeMillis() - downTime < 400) {
+                                onToggleControls()
+                            }
+                            break
+                        }
+                        val totalDy = change.position.y - down.position.y
+                        val totalDx = change.position.x - down.position.x
+                        if (!dragged && (abs(totalDy) > 26f || abs(totalDx) > 26f)) dragged = true
+
+                        if (dragged && !boosting) {
+                            // 上滑为增大：屏幕坐标 y 向下为正，取负
+                            val delta = -(change.position.y - lastY) / height * 1.6f
+                            if (leftSide) onBrightnessDelta(delta) else onVolumeDelta(delta)
+                            change.consume()
+                        } else if (!dragged && !boosting &&
+                            System.currentTimeMillis() - downTime > 480
+                        ) {
+                            boosting = true
+                            onSpeedBoost(true, !leftSide)
+                        }
+                        lastY = change.position.y
+                        pointerId = change.id
+                    }
+                }
             }
     ) {
         // 视频画面
@@ -150,6 +193,21 @@ fun PlayerScreen(
         if (ui.buffering && ui.error == null) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator(color = RainPlayerAccent)
+            }
+        }
+
+        // 手势指示：亮度 / 音量竖条，倍速角标
+        GestureIndicator(ui.gesture)
+
+        ui.notice?.let { text ->
+            Box(
+                Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 84.dp)
+                    .background(Color(0xCC000000), RoundedCornerShape(10.dp))
+                    .padding(horizontal = 16.dp, vertical = 10.dp)
+            ) {
+                Text(text, color = RainPlayerText, fontSize = 13.sp)
             }
         }
 
@@ -317,6 +375,46 @@ fun PlayerScreen(
     }
 }
 
+/** 手势反馈：左侧亮度、右侧音量，中间显示倍速。 */
+@Composable
+private fun GestureIndicator(gesture: GestureState) {
+    if (gesture.kind == GestureKind.NONE) return
+    val icon = when (gesture.kind) {
+        GestureKind.BRIGHTNESS -> Icons.Filled.BrightnessMedium
+        GestureKind.VOLUME -> Icons.Filled.VolumeUp
+        GestureKind.SPEED -> Icons.Filled.Speed
+        GestureKind.NONE -> Icons.Filled.Info
+    }
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Column(
+            Modifier
+                .background(Color(0xB3000000), RoundedCornerShape(14.dp))
+                .padding(horizontal = 22.dp, vertical = 16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Icon(icon, contentDescription = null, tint = Color.White, modifier = Modifier.size(26.dp))
+            Spacer(Modifier.height(8.dp))
+            Text(gesture.label, color = Color.White, fontSize = 13.sp)
+            if (gesture.kind != GestureKind.SPEED) {
+                Spacer(Modifier.height(8.dp))
+                Box(
+                    Modifier
+                        .width(96.dp)
+                        .height(4.dp)
+                        .background(Color(0x55FFFFFF), RoundedCornerShape(2.dp))
+                ) {
+                    Box(
+                        Modifier
+                            .fillMaxWidth(gesture.value.coerceIn(0f, 1f))
+                            .height(4.dp)
+                            .background(RainPlayerAccent, RoundedCornerShape(2.dp))
+                    )
+                }
+            }
+        }
+    }
+}
+
 @Composable
 private fun PanelOverlay(
     ui: PlayerUi,
@@ -334,7 +432,7 @@ private fun PanelOverlay(
     ) {
         Column(
             modifier = Modifier
-                .width(360.dp)
+                .width(380.dp)
                 .fillMaxHeight()
                 .background(Color(0xF2151922))
                 .padding(20.dp)
@@ -352,11 +450,16 @@ private fun PanelOverlay(
                 fontSize = 18.sp,
                 fontWeight = FontWeight.SemiBold,
             )
+            if (ui.panel == PlayerPanel.SUBTITLE) {
+                ui.subtitleNote?.let {
+                    Spacer(Modifier.height(6.dp))
+                    Text(it, color = RainPlayerTextDim, fontSize = 11.sp, lineHeight = 15.sp)
+                }
+            }
             Spacer(Modifier.height(14.dp))
             when (ui.panel) {
                 PlayerPanel.AUDIO -> OptionList(
-                    options = ui.audio.map { it to it.label },
-                    selectedId = ui.audio.firstOrNull { it.selected }?.id,
+                    options = ui.audio,
                     onClick = onSelectAudio,
                 )
 
@@ -367,8 +470,7 @@ private fun PanelOverlay(
                         onClick = { onSelectSubtitle(null) },
                     )
                     OptionList(
-                        options = ui.subtitles.map { it to it.label },
-                        selectedId = ui.subtitles.firstOrNull { it.selected }?.id,
+                        options = ui.subtitles,
                         onClick = { onSelectSubtitle(it) },
                     )
                 }
@@ -403,14 +505,10 @@ private fun PanelOverlay(
 }
 
 @Composable
-private fun OptionList(
-    options: List<Pair<TrackOption, String>>,
-    selectedId: String?,
-    onClick: (TrackOption) -> Unit,
-) {
+private fun OptionList(options: List<TrackOption>, onClick: (TrackOption) -> Unit) {
     LazyColumn {
-        items(options) { (option, label) ->
-            OptionRow(label = label, selected = option.id == selectedId) { onClick(option) }
+        items(options, key = { it.key }) { option ->
+            OptionRow(label = option.label, selected = option.selected) { onClick(option) }
         }
     }
 }
@@ -445,7 +543,7 @@ private fun OptionRow(label: String, selected: Boolean, onClick: () -> Unit) {
             label,
             color = if (focused) Color.Black else RainPlayerText,
             fontSize = 14.sp,
-            maxLines = 1,
+            maxLines = 2,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f),
         )

@@ -31,13 +31,30 @@ public interface IMediaBackend
     /// 生成播放方案。默认走「直通/直链」以保证 4K/8K/HDR/杜比视界与
     /// 全景声音轨不被服务器转码破坏；forceTranscode 为 true 时才请求转码。
     /// </summary>
-    Task<PlaybackPlan> GetPlaybackAsync(string itemId, long startMs, bool forceTranscode = false, CancellationToken ct = default);
+    Task<PlaybackPlan> GetPlaybackAsync(
+        string itemId,
+        long startMs,
+        bool forceTranscode = false,
+        string? sourceId = null,
+        int? audioIndex = null,
+        int? subtitleIndex = null,
+        bool burnSubtitle = false,
+        CancellationToken ct = default);
+
+    /// <summary>详情页展示用的版本 / 音轨 / 字幕清单。</summary>
+    Task<PlaybackOptions> GetPlaybackOptionsAsync(string itemId, string? sourceId = null, CancellationToken ct = default);
 
     Task ReportStartAsync(PlaybackPlan plan, long positionMs, CancellationToken ct = default);
 
     Task ReportProgressAsync(PlaybackPlan plan, long positionMs, bool paused, CancellationToken ct = default);
 
     Task ReportStopAsync(PlaybackPlan plan, long positionMs, CancellationToken ct = default);
+
+    /// <summary>
+    /// 兜底：直接把观看位置写进用户数据。会话上报丢失时靠这一步保证记录不被清零。
+    /// </summary>
+    Task PersistPositionAsync(PlaybackPlan plan, long positionMs, bool completed, CancellationToken ct = default)
+        => Task.CompletedTask;
 
     Task SetFavoriteAsync(string itemId, bool favorite, CancellationToken ct = default);
 

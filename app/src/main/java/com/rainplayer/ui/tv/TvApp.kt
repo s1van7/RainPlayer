@@ -15,9 +15,11 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -32,9 +34,11 @@ import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.VideoLibrary
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -58,6 +62,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.rainplayer.data.Episode
+import com.rainplayer.data.PlaybackOptions
 import com.rainplayer.data.HomeRow
 import com.rainplayer.data.Library
 import com.rainplayer.data.MediaCard
@@ -421,6 +426,23 @@ private fun TvDetailScreen(
     var episodes by remember { mutableStateOf<List<Episode>>(emptyList()) }
     val playFocus = remember { FocusRequester() }
 
+    var options by remember { mutableStateOf<PlaybackOptions?>(null) }
+    var versionId by remember { mutableStateOf<String?>(null) }
+    var audioIndex by remember { mutableStateOf<Int?>(null) }
+    var subtitleIndex by remember { mutableStateOf<Int?>(null) }
+    var dialog by remember { mutableStateOf(TvDetailDialog.NONE) }
+
+    LaunchedEffect(itemId, versionId, detail?.playTargetId) {
+        val b = backend ?: return@LaunchedEffect
+        val target = detail?.playTargetId ?: return@LaunchedEffect
+        runCatching { b.playbackOptions(target, versionId) }
+            .onSuccess { o ->
+                options = o
+                if (audioIndex == null) audioIndex = o.defaultAudioIndex
+                if (subtitleIndex == null) subtitleIndex = o.defaultSubtitleIndex
+            }
+    }
+
     LaunchedEffect(itemId, backend) {
         val b = backend ?: return@LaunchedEffect
         loading = true
@@ -453,6 +475,7 @@ private fun TvDetailScreen(
         } else {
             com.rainplayer.player.PlayQueue.clear()
         }
+        val chosenSubtitle = options?.subtitleTracks?.firstOrNull { it.index == subtitleIndex }
         context.startActivity(
             PlayerActivity.intent(
                 context = context,
@@ -460,11 +483,37 @@ private fun TvDetailScreen(
                 title = d.title.ifBlank { fallbackTitle },
                 subtitle = subtitle,
                 nextId = next,
+                sourceId = versionId,
+                audioIndex = audioIndex,
+                subtitleIndex = subtitleIndex,
+                burnSubtitle = chosenSubtitle?.imageBased == true,
             )
         )
     }
 
     Box(Modifier.fillMaxSize()) {
+        TvOptionDialog(
+            dialog = dialog,
+            options = options,
+            versionId = versionId,
+            audioIndex = audioIndex,
+            subtitleIndex = subtitleIndex,
+            onDismiss = { dialog = TvDetailDialog.NONE },
+            onVersion = {
+                versionId = it
+                audioIndex = null
+                subtitleIndex = null
+                dialog = TvDetailDialog.NONE
+            },
+            onAudio = {
+                audioIndex = it
+                dialog = TvDetailDialog.NONE
+            },
+            onSubtitle = {
+                subtitleIndex = it
+                dialog = TvDetailDialog.NONE
+            },
+        )
         when {
             loading -> LoadingView()
             error != null -> ErrorView(error!!, onRetry = onBack)
@@ -533,6 +582,33 @@ private fun TvDetailScreen(
                             }
                             RainPlayerButton("返回", primary = false) { onBack() }
                         }
+                        val o = options
+                        if (o != null && (o.hasVersions || o.hasAudioChoice || o.hasSubtitleChoice)) {
+                            Spacer(Modifier.height(12.dp))
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                if (o.hasVersions) {
+                                    TvSelectChip(
+                                        "版本",
+                                        o.versions.firstOrNull { it.id == versionId }?.name
+                                            ?: o.versions.firstOrNull()?.name ?: "默认",
+                                    ) { dialog = TvDetailDialog.VERSION }
+                                }
+                                if (o.hasAudioChoice) {
+                                    TvSelectChip(
+                                        "音轨",
+                                        o.audioTracks.firstOrNull { it.index == audioIndex }?.label
+                                            ?: "默认",
+                                    ) { dialog = TvDetailDialog.AUDIO }
+                                }
+                                if (o.hasSubtitleChoice) {
+                                    TvSelectChip(
+                                        "字幕",
+                                        o.subtitleTracks.firstOrNull { it.index == subtitleIndex }?.codecLabel
+                                            ?: "关闭",
+                                    ) { dialog = TvDetailDialog.SUBTITLE }
+                                }
+                            }
+                        }
                         Spacer(Modifier.height(18.dp))
                         Text(
                             d.overview ?: "暂无简介",
@@ -586,6 +662,159 @@ private fun TvDetailScreen(
         if (detail != null) runCatching { playFocus.requestFocus() }
     }
 }
+
+@Composable
+private fun TvSelectChip(prefix: String, label: String, onClick: () -> Unit) {
+    var focused by remember { mutableStateOf(false) }
+    Row(
+        Modifier
+            .background(
+                if (focused) RainPlayerAccent else RainPlayerSurface,
+                RoundedCornerShape(8.dp)
+            )
+            .border(
+                2.dp,
+                if (focused) Color.White else Color.Transparent,
+                RoundedCornerShape(8.dp)
+            )
+            .clickable { onClick() }
+            .focusable()
+            .onFocusChanged { focused = it.isFocused }
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            prefix,
+            color = if (focused) Color.Black else RainPlayerTextDim,
+            fontSize = 11.sp,
+        )
+        Spacer(Modifier.width(6.dp))
+        Text(
+            label,
+            color = if (focused) Color.Black else RainPlayerText,
+            fontSize = 12.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.widthIn(max = 120.dp),
+        )
+    }
+}
+
+@Composable
+private fun TvOptionDialog(
+    dialog: TvDetailDialog,
+    options: PlaybackOptions?,
+    versionId: String?,
+    audioIndex: Int?,
+    subtitleIndex: Int?,
+    onDismiss: () -> Unit,
+    onVersion: (String) -> Unit,
+    onAudio: (Int?) -> Unit,
+    onSubtitle: (Int?) -> Unit,
+) {
+    if (dialog == TvDetailDialog.NONE || options == null) return
+    val title = when (dialog) {
+        TvDetailDialog.VERSION -> "选择版本"
+        TvDetailDialog.AUDIO -> "选择音轨"
+        TvDetailDialog.SUBTITLE -> "选择字幕"
+        TvDetailDialog.NONE -> ""
+    }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title, color = RainPlayerText, fontSize = 17.sp) },
+        text = {
+            LazyColumn(Modifier.heightIn(max = 360.dp)) {
+                when (dialog) {
+                    TvDetailDialog.VERSION -> items(options.versions, key = { it.id }) { v ->
+                        TvDialogRow(
+                            label = v.name,
+                            detail = v.summary.takeIf { it.isNotBlank() },
+                            selected = v.id == (versionId ?: options.versions.firstOrNull()?.id),
+                        ) { onVersion(v.id) }
+                    }
+
+                    TvDetailDialog.AUDIO -> items(options.audioTracks, key = { it.index }) { t ->
+                        TvDialogRow(
+                            label = t.label,
+                            detail = listOfNotNull(
+                                t.codec?.uppercase(),
+                                t.channels?.let { "${it}ch" },
+                            ).joinToString(" · ").ifBlank { null },
+                            selected = t.index == audioIndex,
+                        ) { onAudio(t.index) }
+                    }
+
+                    TvDetailDialog.SUBTITLE -> {
+                        item {
+                            TvDialogRow(
+                                label = "关闭字幕",
+                                detail = null,
+                                selected = subtitleIndex == null,
+                            ) { onSubtitle(null) }
+                        }
+                        items(options.subtitleTracks, key = { it.index }) { t ->
+                            TvDialogRow(
+                                label = t.label,
+                                detail = buildString {
+                                    append(t.codecLabel)
+                                    if (t.imageBased) append(" · 需服务器烧录")
+                                    if (t.forced) append(" · 强制")
+                                },
+                                selected = t.index == subtitleIndex,
+                            ) { onSubtitle(t.index) }
+                        }
+                    }
+
+                    TvDetailDialog.NONE -> Unit
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("关闭") }
+        },
+        containerColor = RainPlayerSurface,
+    )
+}
+
+@Composable
+private fun TvDialogRow(label: String, detail: String?, selected: Boolean, onClick: () -> Unit) {
+    var focused by remember { mutableStateOf(false) }
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .padding(vertical = 2.dp)
+            .background(
+                when {
+                    focused -> RainPlayerAccent
+                    selected -> Color(0x332A3550)
+                    else -> Color.Transparent
+                },
+                RoundedCornerShape(8.dp)
+            )
+            .clickable { onClick() }
+            .focusable()
+            .onFocusChanged { focused = it.isFocused }
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+    ) {
+        Text(
+            (if (selected) "✓ " else "") + label,
+            color = if (focused) Color.Black else if (selected) RainPlayerAccent else RainPlayerText,
+            fontSize = 14.sp,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
+        detail?.let {
+            Text(
+                it,
+                color = if (focused) Color(0xCC000000) else RainPlayerTextDim,
+                fontSize = 11.sp,
+                maxLines = 1,
+            )
+        }
+    }
+}
+
+private enum class TvDetailDialog { NONE, VERSION, AUDIO, SUBTITLE }
 
 @Composable
 private fun TvEpisodeRow(ep: Episode, onClick: () -> Unit) {

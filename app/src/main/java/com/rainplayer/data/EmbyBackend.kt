@@ -261,23 +261,138 @@ class EmbyBackend(override val config: ServerConfig) : MediaBackend {
 
     // ------------------------------------------------------------------ 播放
 
-    override suspend fun playback(itemId: String, startMs: Long, forceTranscode: Boolean): PlaybackPlan {
+    /**
+     * 拉一次 PlaybackInfo，把里面的 MediaSources 映射成「版本」，
+     * 把选中版本的 MediaStreams 映射成音轨/字幕清单。
+     */
+    override suspend fun playbackOptions(itemId: String, sourceId: String?): PlaybackOptions {
+        val root = requestPlaybackInfo(itemId, 0L, sourceId, null, null, isPlayback = false)
+        val sources = root.arr("MediaSources").orEmpty().mapNotNull { it.asObj() }
+        if (sources.isEmpty()) return PlaybackOptions()
+
+        val versions = sources.mapIndexed { index, source ->
+            val streams = source.arr("MediaStreams").orEmpty().mapNotNull { it.asObj() }
+            val video = streams.firstOrNull { it.str("Type") == "Video" }
+            val audio = streams.firstOrNull { it.str("Type") == "Audio" }
+            val id = source.str("Id") ?: itemId
+            val width = video?.int("Width")
+            val height = video?.int("Height")
+            val version = MediaVersion(
+                id = id,
+                name = source.str("Name")
+                    ?: buildVersionName(width, height, video?.str("Codec"), audio?.str("Codec"))
+                    ?: "版本 ${index + 1}",
+                container = source.str("Container"),
+                width = width,
+                height = height,
+                bitrate = source.int("Bitrate"),
+                sizeBytes = source.long("Size"),
+                videoCodec = video?.str("Codec"),
+                audioCodec = audio?.str("Codec"),
+                dynamicRange = video?.str("VideoRangeType") ?: video?.str("VideoRange"),
+                isDefault = index == 0,
+            )
+            version
+        }
+
+        val active = sources.firstOrNull { it.str("Id") == sourceId } ?: sources.first()
+        val streams = active.arr("MediaStreams").orEmpty().mapNotNull { it.asObj() }
+
+        val audioTracks = streams.filter { it.str("Type") == "Audio" }.mapIndexed { index, s ->
+            MediaTrack(
+                index = s.int("Index") ?: index,
+                label = s.str("DisplayTitle") ?: s.str("Title") ?: "音轨 ${index + 1}",
+                language = s.str("Language"),
+                codec = s.str("Codec"),
+                channels = s.int("Channels"),
+                bitrate = s.int("BitRate"),
+            )
+        }
+        val subtitleTracks = streams.filter { it.str("Type") == "Subtitle" }.mapIndexed { index, s ->
+            val delivery = s.str("DeliveryUrl")
+            val codec = s.str("Codec")
+            SubtitleTrack(
+                index = s.int("Index") ?: index,
+                label = s.str("DisplayTitle") ?: s.str("Title") ?: "字幕 ${index + 1}",
+                language = s.str("Language"),
+                codec = codec,
+                url = delivery?.let { url(it) + (if (it.contains("?")) "&" else "?") + "api_key=$token" },
+                isExternal = s.bool("IsExternal") ?: (delivery != null),
+                imageBased = isImageSubtitle(codec),
+                forced = s.bool("IsForced") ?: false,
+                selected = s.bool("IsDefault") ?: false,
+            )
+        }
+        val defaultAudio = audioTracks.firstOrNull { s ->
+            streams.firstOrNull { it.int("Index") == s.index }?.bool("IsDefault") == true
+        } ?: audioTracks.firstOrNull()
+
+        return PlaybackOptions(
+            versions = versions,
+            audioTracks = audioTracks,
+            subtitleTracks = subtitleTracks,
+            defaultAudioIndex = defaultAudio?.index,
+            defaultSubtitleIndex = subtitleTracks.firstOrNull { it.selected }?.index,
+        )
+    }
+
+    private fun buildVersionName(width: Int?, height: Int?, videoCodec: String?, audioCodec: String?): String? {
+        if (width == null || height == null) return null
+        val res = when {
+            width >= 7000 || height >= 3500 -> "8K"
+            width >= 3500 || height >= 1900 -> "4K"
+            width >= 1800 || height >= 1000 -> "1080P"
+            else -> "${height}P"
+        }
+        return listOfNotNull(res, videoCodec?.uppercase(), audioCodec?.uppercase()).joinToString(" · ")
+    }
+
+    private fun isImageSubtitle(codec: String?): Boolean = when (codec?.lowercase()) {
+        "pgssub", "pgs", "hdmv_pgs_subtitle", "dvdsub", "dvd_subtitle", "dvbsub", "dvb_subtitle" -> true
+        else -> false
+    }
+
+    private suspend fun requestPlaybackInfo(
+        itemId: String,
+        startMs: Long,
+        sourceId: String?,
+        audioIndex: Int?,
+        subtitleIndex: Int?,
+        isPlayback: Boolean = true,
+    ): JsonObject {
         val body = buildJsonObject {
             put("UserId", userId)
             put("StartTimeTicks", startMs * 10_000L)
-            put("IsPlayback", true)
+            // 只是查轨道清单时不能置 true，否则服务器会认为已经开播，
+            // 在「正在播放」里留下幽灵会话，还会把观看记录当成已开始。
+            put("IsPlayback", isPlayback)
             put("AutoOpenLiveStream", true)
             put("MaxStreamingBitrate", 200_000_000)
-            put("DeviceProfile", deviceProfile(forceTranscode))
+            sourceId?.let { put("MediaSourceId", it) }
+            audioIndex?.let { put("AudioStreamIndex", it) }
+            subtitleIndex?.let { put("SubtitleStreamIndex", it) }
+            put("DeviceProfile", deviceProfile(false))
         }.toString()
+        var path = "/Items/$itemId/PlaybackInfo?UserId=$userId&StartTimeTicks=${startMs * 10_000L}"
+        if (!sourceId.isNullOrBlank()) path += "&MediaSourceId=$sourceId"
+        val text = Http.postJson(url(path), body, tokenHeaders())
+        return J.obj(text) ?: error("无法获取播放信息")
+    }
 
-        val text = Http.postJson(
-            url("/Items/$itemId/PlaybackInfo?UserId=$userId&StartTimeTicks=${startMs * 10_000L}"),
-            body,
-            tokenHeaders()
-        )
-        val root = J.obj(text) ?: error("无法获取播放信息")
-        val source = root.arr("MediaSources")?.firstOrNull()?.asObj() ?: error("服务器未返回媒体源")
+    override suspend fun playback(
+        itemId: String,
+        startMs: Long,
+        forceTranscode: Boolean,
+        sourceId: String?,
+        audioIndex: Int?,
+        subtitleIndex: Int?,
+        burnSubtitle: Boolean,
+    ): PlaybackPlan {
+        val root = requestPlaybackInfo(itemId, startMs, sourceId, audioIndex, subtitleIndex)
+        val sources = root.arr("MediaSources").orEmpty().mapNotNull { it.asObj() }
+        val source = sources.firstOrNull { it.str("Id") == sourceId }
+            ?: sources.firstOrNull()
+            ?: error("服务器未返回媒体源")
         val mediaSourceId = source.str("Id") ?: itemId
         val playSessionId = root.str("PlaySessionId")
         val container = source.str("Container")
@@ -288,29 +403,30 @@ class EmbyBackend(override val config: ServerConfig) : MediaBackend {
                 ?: source.obj("UserData")?.long("PlaybackPosition")
         )
 
-        val streams = source.arr("MediaStreams").orEmpty()
-        val videoStream = streams.firstOrNull { it.asObj()?.str("Type") == "Video" }?.asObj()
-        val audioTracks = streams.filter { it.asObj()?.str("Type") == "Audio" }.mapIndexed { index, element ->
-            val s = element.asObj()!!
+        val streams = source.arr("MediaStreams").orEmpty().mapNotNull { it.asObj() }
+        val videoStream = streams.firstOrNull { it.str("Type") == "Video" }
+        val audioTracks = streams.filter { it.str("Type") == "Audio" }.mapIndexed { index, s ->
             MediaTrack(
                 index = s.int("Index") ?: index,
-                label = s.strOr("DisplayTitle", "音轨 ${index + 1}"),
+                label = s.str("DisplayTitle") ?: s.str("Title") ?: "音轨 ${index + 1}",
                 language = s.str("Language"),
                 codec = s.str("Codec"),
                 channels = s.int("Channels"),
                 bitrate = s.int("BitRate"),
             )
         }
-        val subtitleTracks = streams.filter { it.asObj()?.str("Type") == "Subtitle" }.mapIndexed { index, element ->
-            val s = element.asObj()!!
+        val subtitleTracks = streams.filter { it.str("Type") == "Subtitle" }.mapIndexed { index, s ->
             val delivery = s.str("DeliveryUrl")
+            val codec = s.str("Codec")
             SubtitleTrack(
                 index = s.int("Index") ?: index,
-                label = s.strOr("DisplayTitle", "字幕 ${index + 1}"),
+                label = s.str("DisplayTitle") ?: s.str("Title") ?: "字幕 ${index + 1}",
                 language = s.str("Language"),
-                codec = s.str("Codec"),
+                codec = codec,
                 url = delivery?.let { url(it) + (if (it.contains("?")) "&" else "?") + "api_key=$token" },
                 isExternal = s.bool("IsExternal") ?: (delivery != null),
+                imageBased = isImageSubtitle(codec),
+                forced = s.bool("IsForced") ?: false,
             )
         }
 
@@ -322,13 +438,17 @@ class EmbyBackend(override val config: ServerConfig) : MediaBackend {
 
         val transcodingUrl = source.str("TranscodingUrl")
         val supportsDirectPlay = source.bool("SupportsDirectPlay") ?: true
-        val useTranscode = forceTranscode || (!supportsDirectPlay && transcodingUrl != null)
+        // 图形字幕只能由服务器烧录，必须转码
+        val useTranscode = forceTranscode || burnSubtitle || (!supportsDirectPlay && transcodingUrl != null)
 
         val playUrl: String
         var isHls = false
-        if (useTranscode && transcodingUrl != null) {
-            playUrl = url(transcodingUrl) + (if (transcodingUrl.contains("api_key")) "" else "&api_key=$token")
-            isHls = transcodingUrl.contains("m3u8", true) || transcodingUrl.contains("master", true)
+        if (useTranscode) {
+            val built = transcodingUrl?.takeIf { forceTranscode || !burnSubtitle }
+                ?: buildTranscodeUrl(itemId, mediaSourceId, playSessionId, audioIndex, subtitleIndex, burnSubtitle)
+            playUrl = url(built) + (if (built.contains("api_key")) "" else "&api_key=$token")
+            isHls = built.contains("m3u8", true) || built.contains("master", true) ||
+                built.contains("master.m3u8", true)
         } else {
             playUrl = url(
                 "/Videos/$itemId/stream?Static=true&MediaSourceId=$mediaSourceId" +
@@ -352,7 +472,7 @@ class EmbyBackend(override val config: ServerConfig) : MediaBackend {
                 listOf(
                     MediaTrack(
                         index = it.int("Index") ?: 0,
-                        label = it.strOr("DisplayTitle", "视频"),
+                        label = it.str("DisplayTitle") ?: "视频",
                         codec = it.str("Codec"),
                     )
                 )
@@ -365,7 +485,37 @@ class EmbyBackend(override val config: ServerConfig) : MediaBackend {
             dynamicRange = videoRangeType ?: videoRange,
             dolbyVision = dv,
             container = container,
+            audioStreamIndex = audioIndex,
+            subtitleStreamIndex = subtitleIndex,
+            subtitleBurnedIn = useTranscode && burnSubtitle,
         )
+    }
+
+    /** 图形字幕 / 强制转码时自己拼一条 HLS 转码地址。 */
+    private fun buildTranscodeUrl(
+        itemId: String,
+        mediaSourceId: String,
+        playSessionId: String?,
+        audioIndex: Int?,
+        subtitleIndex: Int?,
+        burnSubtitle: Boolean,
+    ): String = buildString {
+        append("/Videos/$itemId/master.m3u8")
+        append("?MediaSourceId=$mediaSourceId")
+        append("&DeviceId=${config.deviceId}")
+        playSessionId?.let { append("&PlaySessionId=$it") }
+        append("&VideoCodec=h264&AudioCodec=aac,ac3,eac3")
+        append("&VideoBitrate=120000000&AudioBitrate=640000")
+        append("&MaxAudioChannels=8&TranscodingMaxAudioChannels=8")
+        audioIndex?.let { append("&AudioStreamIndex=$it") }
+        if (burnSubtitle && subtitleIndex != null && subtitleIndex >= 0) {
+            append("&SubtitleStreamIndex=$subtitleIndex")
+            append("&SubtitleMethod=Burn")
+        } else {
+            append("&SubtitleMethod=Encode")
+        }
+        append("&SegmentContainer=ts&MinSegments=1&BreakOnNonKeyFrames=True")
+        append("&Context=Streaming&Protocol=hls")
     }
 
     private fun deviceProfile(forceTranscode: Boolean): JsonObject = buildJsonObject {
@@ -447,13 +597,36 @@ class EmbyBackend(override val config: ServerConfig) : MediaBackend {
 
     override suspend fun reportStop(plan: PlaybackPlan, positionMs: Long) {
         runCatching {
+            // 用完整 body：缺 PlaySessionId / PlayMethod 时部分 Emby 版本会当成
+            // 「未知会话的停止」，直接把该条目的观看记录判成已完成或清零。
             val body = buildJsonObject {
                 put("ItemId", plan.itemId)
                 plan.mediaSourceId?.let { put("MediaSourceId", it) }
                 plan.playSessionId?.let { put("PlaySessionId", it) }
                 put("PositionTicks", positionMs * 10_000L)
+                put("Failed", false)
+                put("CanSeek", true)
+                put("IsPaused", true)
+                put("IsMuted", false)
+                put("PlayMethod", if (plan.direct) "DirectPlay" else "Transcode")
+                put("PlaylistLength", 1)
+                put("PlaylistIndex", 0)
             }.toString()
             Http.postJson(url("/Sessions/Playing/Stopped"), body, tokenHeaders())
+        }
+    }
+
+    /**
+     * 非会话方式直接写用户数据。会话上报失败或被系统打断时靠这一步兜底，
+     * 避免「继续观看」里的进度被清零。
+     */
+    override suspend fun persistPosition(plan: PlaybackPlan, positionMs: Long, completed: Boolean) {
+        runCatching {
+            val body = buildJsonObject {
+                put("PlaybackPositionTicks", positionMs * 10_000L)
+                put("Played", completed)
+            }.toString()
+            Http.postJson(url("/Users/$userId/Items/${plan.itemId}/UserData"), body, tokenHeaders())
         }
     }
 
@@ -467,6 +640,10 @@ class EmbyBackend(override val config: ServerConfig) : MediaBackend {
             put("IsMuted", false)
             put("CanSeek", true)
             put("PlayMethod", if (plan.direct) "DirectPlay" else "Transcode")
+            put("RepeatMode", "RepeatNone")
+            // 让服务器知道用户实际选的是哪条轨道，多端切换时不会把记录算到默认轨上
+            plan.audioStreamIndex?.let { put("AudioStreamIndex", it) }
+            plan.subtitleStreamIndex?.let { put("SubtitleStreamIndex", it) }
             if (start) {
                 put("PlaylistLength", 1)
                 put("PlaylistIndex", 0)

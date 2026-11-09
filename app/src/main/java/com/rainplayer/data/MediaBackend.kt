@@ -30,14 +30,39 @@ interface MediaBackend {
     /**
      * 生成播放方案。默认走「直通/直链」以保证 4K/8K/HDR/杜比视界与
      * 全景声音轨不被服务器转码破坏；[forceTranscode] 为 true 时才请求转码。
+     *
+     * @param sourceId 选中的版本（多版本影片）；null 表示服务器默认版本
+     * @param audioIndex 选中的音轨序号；null 表示服务器默认
+     * @param subtitleIndex 选中的字幕序号；null 表示不指定（-1 表示关闭字幕）
+     * @param burnSubtitle 图形字幕（PGS 等）需要烧录进画面
      */
-    suspend fun playback(itemId: String, startMs: Long, forceTranscode: Boolean = false): PlaybackPlan
+    suspend fun playback(
+        itemId: String,
+        startMs: Long,
+        forceTranscode: Boolean = false,
+        sourceId: String? = null,
+        audioIndex: Int? = null,
+        subtitleIndex: Int? = null,
+        burnSubtitle: Boolean = false,
+    ): PlaybackPlan
+
+    /** 详情页展示用的版本 / 音轨 / 字幕清单。 */
+    suspend fun playbackOptions(itemId: String, sourceId: String? = null): PlaybackOptions
 
     suspend fun reportStart(plan: PlaybackPlan, positionMs: Long)
 
     suspend fun reportProgress(plan: PlaybackPlan, positionMs: Long, paused: Boolean)
 
     suspend fun reportStop(plan: PlaybackPlan, positionMs: Long)
+
+    /**
+     * 兜底：直接把观看位置写进用户数据。
+     *
+     * 会话式上报（Sessions/Playing 系列接口）在异常退出、被系统杀掉、或多端抢占会话时
+     * 可能丢掉最后一次位置，导致「继续观看」记录被清零。这里用非会话接口再写一次，
+     * 保证记录一定落库。默认实现为空，由支持的服务器覆盖。
+     */
+    suspend fun persistPosition(plan: PlaybackPlan, positionMs: Long, completed: Boolean) = Unit
 
     suspend fun setFavorite(itemId: String, favorite: Boolean)
 

@@ -293,7 +293,65 @@ class FnOsBackend(override val config: ServerConfig) : MediaBackend {
 
     // ---------------------------------------------------------------- 播放
 
-    override suspend fun playback(itemId: String, startMs: Long, forceTranscode: Boolean): PlaybackPlan {
+    /**
+     * 飞牛影视没有「多版本」概念（同一影片就是一个 media），
+     * 这里只返回音轨/字幕清单，版本列表留空。
+     */
+    override suspend fun playbackOptions(itemId: String, sourceId: String?): PlaybackOptions {
+        val info = postData("/v/api/v1/play/info", buildJsonObject { put("item_guid", itemId) })?.asObj()
+            ?: return PlaybackOptions()
+        val mediaGuid = info.str("media_guid") ?: return PlaybackOptions()
+        val stream = runCatching {
+            postData("/v/api/v1/stream", buildJsonObject {
+                put("media_guid", mediaGuid)
+                put("level", 1)
+            })?.asObj()
+        }.getOrNull() ?: return PlaybackOptions()
+
+        val audioTracks = stream.get("audio_streams").list().mapIndexed { index, a ->
+            MediaTrack(
+                index = a.int("index") ?: index,
+                label = a.strOr("title", a.strOr("codec_name", "音轨 ${index + 1}")),
+                language = a.str("language"),
+                codec = a.str("codec_name"),
+                channels = a.int("channels"),
+                bitrate = a.int("bps"),
+            )
+        }
+        val subtitleTracks = stream.get("subtitle_streams").list().mapIndexed { index, s ->
+            val external = (s.int("is_external") ?: 0) == 1
+            val codec = s.str("codec_name")
+            SubtitleTrack(
+                index = s.int("index") ?: index,
+                label = s.strOr("title", s.strOr("language", "字幕 ${index + 1}")),
+                language = s.str("language"),
+                codec = codec,
+                url = if (external) s.str("guid")?.let { "$base/v/api/v1/subtitle/dl/$it" } else null,
+                isExternal = external,
+                headers = staticHeaders(),
+                imageBased = codec?.lowercase()?.let {
+                    it.contains("pgs") || it.contains("dvd") || it.contains("dvb")
+                } ?: false,
+            )
+        }
+        return PlaybackOptions(
+            versions = emptyList(),
+            audioTracks = audioTracks,
+            subtitleTracks = subtitleTracks,
+            defaultAudioIndex = audioTracks.firstOrNull()?.index,
+            defaultSubtitleIndex = subtitleTracks.firstOrNull()?.index,
+        )
+    }
+
+    override suspend fun playback(
+        itemId: String,
+        startMs: Long,
+        forceTranscode: Boolean,
+        sourceId: String?,
+        audioIndex: Int?,
+        subtitleIndex: Int?,
+        burnSubtitle: Boolean,
+    ): PlaybackPlan {
         val info = postData("/v/api/v1/play/info", buildJsonObject { put("item_guid", itemId) })?.asObj()
             ?: error("飞牛影视未返回播放信息")
 
@@ -357,6 +415,10 @@ class FnOsBackend(override val config: ServerConfig) : MediaBackend {
         val hasCloudDirect = (directLinkQualities as? JsonArray)?.isNotEmpty() == true
         var playUrl = "$base/v/api/v1/media/range/$mediaGuid"
         var isHls = false
+        // 用户选中的音轨 / 字幕（按 stream index 匹配 guid）
+        val chosenAudio = audioStreams.firstOrNull { (it.int("index") ?: -1) == audioIndex }
+            ?: audioStreams.firstOrNull()
+        val chosenSubtitle = subtitleStreams.firstOrNull { (it.int("index") ?: -1) == subtitleIndex }
         if (hasCloudDirect) {
             runCatching {
                 val link = postData("/v/api/v1/play/play", buildJsonObject {
@@ -367,9 +429,9 @@ class FnOsBackend(override val config: ServerConfig) : MediaBackend {
                     put("bitrate", bitrate)
                     put("startTimestamp", startSec)
                     put("audio_encoder", "aac")
-                    put("audio_guid", audioStreams.firstOrNull()?.str("guid") ?: "")
-                    put("subtitle_guid", "")
-                    put("channels", 2)
+                    put("audio_guid", chosenAudio?.str("guid") ?: "")
+                    put("subtitle_guid", chosenSubtitle?.str("guid") ?: "")
+                    put("channels", chosenAudio?.int("channels") ?: 2)
                     put("forced_sdr", 0)
                 })?.asObj()?.str("play_link")
                 if (!link.isNullOrBlank()) {
@@ -408,12 +470,14 @@ class FnOsBackend(override val config: ServerConfig) : MediaBackend {
             container = fileStream?.str("file_name")?.substringAfterLast('.', ""),
             fnMediaGuid = mediaGuid,
             fnVideoGuid = videoStream?.str("guid"),
-            fnAudioGuid = audioStreams.firstOrNull()?.str("guid"),
-            fnSubtitleGuid = info.str("subtitle_guid"),
+            fnAudioGuid = chosenAudio?.str("guid"),
+            fnSubtitleGuid = chosenSubtitle?.str("guid") ?: info.str("subtitle_guid"),
             fnResolution = resolution,
             fnBitrate = bitrate,
             fnDirectAudioIndex = info.int("direct_link_audio_index") ?: 0,
             posterUrl = imgUrl(item?.str("posters")),
+            audioStreamIndex = chosenAudio?.int("index") ?: audioIndex,
+            subtitleStreamIndex = chosenSubtitle?.int("index") ?: subtitleIndex,
         )
     }
 

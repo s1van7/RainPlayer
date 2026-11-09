@@ -92,21 +92,24 @@ fi
 mkdir -p artifacts
 shopt -s nullglob
 found=0
-# 版本号取自 build.gradle.kts，产物命名为 rainplayer-<版本>-<abi>.apk
+# 版本号取自 build.gradle.kts，产物命名为 rainplayer-<版本>-<flavor>-<abi>.apk
 VERSION="$(sed -n 's/.*versionName *= *"\([^"]*\)".*/\1/p' app/build.gradle.kts | head -1)"
 [ -z "$VERSION" ] && VERSION="dev"
 
-for f in app/build/outputs/apk/release/*.apk; do
-  base="$(basename "$f" .apk)"
-  # app-universal-release -> universal
-  short="${base#app-}"
-  short="${short%-release}"
-  # x86 系列只用于模拟器，不进发布产物
-  case "$short" in
-    x86|x86_64) continue ;;
-  esac
-  cp "$f" "artifacts/rainplayer-${VERSION}-${short}.apk"
-  found=$((found + 1))
+# 手机包与电视包分开输出，互不覆盖
+for flavor in phone tv; do
+  for f in app/build/outputs/apk/$flavor/release/*.apk; do
+    base="$(basename "$f" .apk)"
+    # app-phone-universal-release -> universal
+    short="${base#app-$flavor-}"
+    short="${short%-release}"
+    # x86 系列只用于模拟器，不进发布产物
+    case "$short" in
+      x86|x86_64) continue ;;
+    esac
+    cp "$f" "artifacts/rainplayer-${VERSION}-${flavor}-${short}.apk"
+    found=$((found + 1))
+  done
 done
 
 if [ "$found" -eq 0 ]; then
@@ -119,5 +122,7 @@ ls -lh artifacts
 
 # 打印实际签名证书，便于确认 CI 产物能否覆盖安装 Release 包
 echo "==> 签名证书"
-keytool -printcert -jarfile "$(ls artifacts/*universal*.apk 2>/dev/null | head -1)" 2>/dev/null \
+SAMPLE="$(ls artifacts/*phone-universal*.apk 2>/dev/null | head -1)"
+[ -z "$SAMPLE" ] && SAMPLE="$(ls artifacts/*.apk 2>/dev/null | head -1)"
+keytool -printcert -jarfile "$SAMPLE" 2>/dev/null \
   | grep -E "^Owner:|^所有者:" | sed 's/^/   /' || echo "   （读取失败，请手动用 apksigner 校验）"

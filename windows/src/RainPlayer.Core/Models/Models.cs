@@ -171,6 +171,70 @@ public sealed class SubtitleTrack
     public string? Url { get; set; }
     public bool IsExternal { get; set; }
     public Dictionary<string, string> Headers { get; set; } = new();
+
+    /// <summary>图形字幕（PGS / DVD / DVB）。桌面端由 libmpv 直接渲染，无需转码。</summary>
+    public bool ImageBased { get; set; }
+
+    public bool Forced { get; set; }
+
+    public string CodecLabel => (Codec ?? "").ToLowerInvariant() switch
+    {
+        "pgssub" or "pgs" or "hdmv_pgs_subtitle" => "PGS",
+        "dvdsub" or "dvd_subtitle" => "VOBSUB",
+        "dvbsub" or "dvb_subtitle" => "DVB",
+        "subrip" or "srt" => "SRT",
+        "ass" or "ssa" => "ASS",
+        "webvtt" or "vtt" => "VTT",
+        "ttml" or "dfxp" => "TTML",
+        _ => string.IsNullOrEmpty(Codec) ? "字幕" : Codec!.ToUpperInvariant(),
+    };
+}
+
+/// <summary>同一部影片的不同版本（不同分辨率 / 编码 / 音轨组合）。</summary>
+public sealed class MediaVersion
+{
+    public string Id { get; set; } = "";
+    public string Name { get; set; } = "";
+    public string? Container { get; set; }
+    public int? Width { get; set; }
+    public int? Height { get; set; }
+    public int? Bitrate { get; set; }
+    public long? SizeBytes { get; set; }
+    public string? VideoCodec { get; set; }
+    public string? AudioCodec { get; set; }
+    public string? DynamicRange { get; set; }
+    public bool IsDefault { get; set; }
+
+    public string ResolutionLabel => (Width, Height) switch
+    {
+        (int w, int h) when w >= 7000 || h >= 3500 => "8K",
+        (int w, int h) when w >= 3500 || h >= 1900 => "4K",
+        (int w, int h) when w >= 1800 || h >= 1000 => "1080P",
+        (int w, int _) => $"{w}P",
+        _ => "",
+    };
+
+    public string Summary => string.Join(" · ", new[]
+    {
+        ResolutionLabel,
+        VideoCodec?.ToUpperInvariant(),
+        AudioCodec?.ToUpperInvariant(),
+        Bitrate is > 0 ? $"{Bitrate.Value / 1_000_000.0:F1} Mbps" : null,
+    }.Where(s => !string.IsNullOrEmpty(s)));
+}
+
+/// <summary>播放前可选的轨道清单（详情页用来挑版本/音轨/字幕）。</summary>
+public sealed class PlaybackOptions
+{
+    public List<MediaVersion> Versions { get; set; } = new();
+    public List<MediaTrack> AudioTracks { get; set; } = new();
+    public List<SubtitleTrack> SubtitleTracks { get; set; } = new();
+    public int? DefaultAudioIndex { get; set; }
+    public int? DefaultSubtitleIndex { get; set; }
+
+    public bool HasVersions => Versions.Count > 1;
+    public bool HasAudioChoice => AudioTracks.Count > 1;
+    public bool HasSubtitleChoice => SubtitleTracks.Count > 0;
 }
 
 /// <summary>一次播放所需的全部信息：地址、请求头、起始进度、轨道清单。</summary>
@@ -205,4 +269,11 @@ public sealed class PlaybackPlan
 
     public string? PosterUrl { get; set; }
     public string? NextItemId { get; set; }
+
+    /// <summary>用户选中的音轨 / 字幕序号（服务器侧 stream index）。</summary>
+    public int? AudioStreamIndex { get; set; }
+    public int? SubtitleStreamIndex { get; set; }
+
+    /// <summary>字幕是否已由服务器烧录进画面（图形字幕无法在本机渲染时的兜底）。</summary>
+    public bool SubtitleBurnedIn { get; set; }
 }

@@ -131,7 +131,69 @@ data class SubtitleTrack(
     val url: String? = null,
     val isExternal: Boolean = false,
     val headers: Map<String, String> = emptyMap(),
-)
+    /** 图形字幕（PGS / DVD / DVB）：本机无法渲染，只能让服务器烧录进画面。 */
+    val imageBased: Boolean = false,
+    val forced: Boolean = false,
+    val selected: Boolean = false,
+) {
+    val codecLabel: String
+        get() = when (codec?.lowercase()) {
+            "pgssub", "pgs", "hdmv_pgs_subtitle" -> "PGS"
+            "dvdsub", "dvd_subtitle" -> "VOBSUB"
+            "dvbsub", "dvb_subtitle" -> "DVB"
+            "subrip", "srt" -> "SRT"
+            "ass", "ssa" -> "ASS"
+            "webvtt", "vtt" -> "VTT"
+            "ttml", "dfxp" -> "TTML"
+            else -> codec?.uppercase() ?: "字幕"
+        }
+}
+
+/** 同一部影片的不同版本（不同分辨率 / 编码 / 音轨组合）。 */
+data class MediaVersion(
+    val id: String,
+    val name: String,
+    val container: String? = null,
+    val width: Int? = null,
+    val height: Int? = null,
+    val bitrate: Int? = null,
+    val sizeBytes: Long? = null,
+    val videoCodec: String? = null,
+    val audioCodec: String? = null,
+    val dynamicRange: String? = null,
+    val isDefault: Boolean = false,
+) {
+    /** 例：4K · HEVC · DTS-HD MA · 24.5 Mbps */
+    val summary: String
+        get() = listOfNotNull(
+            resolutionLabel,
+            videoCodec?.uppercase(),
+            audioCodec?.uppercase(),
+            bitrate?.takeIf { it > 0 }?.let { "%.1f Mbps".format(it / 1_000_000.0) },
+        ).joinToString(" · ")
+
+    val resolutionLabel: String?
+        get() = when {
+            width == null || height == null -> null
+            width >= 7000 || height >= 3500 -> "8K"
+            width >= 3500 || height >= 1900 -> "4K"
+            width >= 1800 || height >= 1000 -> "1080P"
+            else -> "${width}P"
+        }
+}
+
+/** 播放前可选的轨道清单（详情页用来让用户挑版本/音轨/字幕）。 */
+data class PlaybackOptions(
+    val versions: List<MediaVersion> = emptyList(),
+    val audioTracks: List<MediaTrack> = emptyList(),
+    val subtitleTracks: List<SubtitleTrack> = emptyList(),
+    val defaultAudioIndex: Int? = null,
+    val defaultSubtitleIndex: Int? = null,
+) {
+    val hasVersions: Boolean get() = versions.size > 1
+    val hasAudioChoice: Boolean get() = audioTracks.size > 1
+    val hasSubtitleChoice: Boolean get() = subtitleTracks.isNotEmpty()
+}
 
 /** 一次播放所需的全部信息：地址、请求头、起始进度、轨道清单。 */
 data class PlaybackPlan(
@@ -161,6 +223,12 @@ data class PlaybackPlan(
     val fnDirectAudioIndex: Int = 0,
     val posterUrl: String? = null,
     val nextItemId: String? = null,
+    /** 用户选中的音轨 / 字幕序号（服务器侧 stream index）。 */
+    val audioStreamIndex: Int? = null,
+    val subtitleStreamIndex: Int? = null,
+    /** 字幕是否已由服务器烧录进画面（图形字幕无法在本机渲染时的兜底）。 */
+    val subtitleBurnedIn: Boolean = false,
+    val versions: List<MediaVersion> = emptyList(),
 )
 
 /** 播放器运行时探测到的能力，用于 UI 上给出「是否直通/HDR/DV」提示。 */

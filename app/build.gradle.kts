@@ -29,11 +29,31 @@ android {
         applicationId = "com.rainplayer"
         minSdk = 21
         targetSdk = 34
-        versionCode = 2
-        versionName = "1.0.1"
+        versionCode = 3
+        versionName = "1.1.0"
 
         vectorDrawables.useSupportLibrary = true
         resourceConfigurations += listOf("zh", "en")
+    }
+
+    /**
+     * 手机端与电视端拆成两个独立安装包：
+     *  - phone：com.rainplayer，普通桌面图标
+     *  - tv   ：com.rainplayer.tv，仅 Leanback 入口，遥控器操作
+     * 两者可以同时装在一台设备上（例如手机 + 电视盒子同一个账号）。
+     */
+    flavorDimensions += "device"
+    productFlavors {
+        create("phone") {
+            dimension = "device"
+            applicationId = "com.rainplayer"
+            versionNameSuffix = ""
+        }
+        create("tv") {
+            dimension = "device"
+            applicationId = "com.rainplayer.tv"
+            versionNameSuffix = ""
+        }
     }
 
     signingConfigs {

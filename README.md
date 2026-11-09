@@ -38,13 +38,24 @@
 
 ### 安装
 
-**Android / Android TV**：
+**Android 手机 / 平板**：
 
 ```bash
-adb install -r app-release-universal.apk
+adb install -r rainplayer-<版本>-phone-universal.apk
 ```
 
-电视上也可以通过 U 盘 / 当贝市场等安装 `universal` 或 `arm64-v8a` 包。
+**Android TV / 电视盒子**（独立安装包，与手机版可同时存在）：
+
+```bash
+adb install -r rainplayer-<版本>-tv-universal.apk
+```
+
+| 包名 | 说明 |
+| --- | --- |
+| `rainplayer-<版本>-phone-*.apk` | 手机版，包名 `com.rainplayer`，桌面图标启动 |
+| `rainplayer-<版本>-tv-*.apk` | 电视版，包名 `com.rainplayer.tv`，只有遥控器界面与 Leanback 入口 |
+
+两个包签名相同但包名不同，可以装在同一台设备上互不干扰。老电视请用 `armeabi-v7a`，主流盒子用 `arm64-v8a`，不确定就选 `universal`。
 
 **Windows**：到 [Releases](../../releases) 下载
 
@@ -142,14 +153,29 @@ Emby 请求 `PlaybackInfo` 时提交一个「什么都能直放」的 `DevicePro
 - `DisplayModeController` 在起播后按 `videoFormat` 的宽高与帧率
   选择最接近的 `Display.Mode`（例如 3840×2160@23.976），避免 4K 被压到 1080p 输出。
 
-### 4.4 字幕
+### 4.4 手势与旋转
+
+播放页支持手机端手势，全部可在设置页单独开关：
+
+| 手势 | 作用 |
+| --- | --- |
+| 左半屏上下滑 | 调节画面亮度（只改本窗口亮度，不动系统设置） |
+| 右半屏上下滑 | 调节媒体音量 |
+| 长按右半屏 | 按设定倍速快进（2x / 3x / 4x 可选） |
+| 长按左半屏 | 快退（连续回跳，不依赖负速率） |
+| 点击画面 | 显示 / 隐藏控制条 |
+
+旋转由 `OrientationEventListener` 跟随重力判定，忽略系统的旋转锁定，只切换
+竖屏 / 横屏 / 反向横屏，不做倒置竖屏。电视盒子没有加速度计时自动跳过。
+
+### 4.5 字幕
 
 - 内嵌字幕由 Media3 解析（SRT / ASS / SSA / PGS 位图字幕）。
 - 外挂字幕侧载为 `MediaItem.SubtitleConfiguration`：
   - Emby 直接给 `DeliveryUrl`（带 `api_key`）；
   - 飞牛需要签名，先把字幕下载到 `cache/subtitles/` 再以本地文件侧载。
 
-### 4.5 失败兜底
+### 4.6 失败兜底
 
 播放出错时弹出对话框，可选「重试」或「转码播放」（改用服务器 HLS），
 并在信息面板显示 `errorCodeName` 与可能原因（8K AV1 / DV Profile 7 等）。
@@ -192,10 +218,11 @@ Emby 请求 `PlaybackInfo` 时提交一个「什么都能直放」的 `DevicePro
 ```bash
 export ANDROID_HOME=/path/to/android-sdk
 ./gradlew :app:assembleDebug        # 调试包
-./gradlew :app:assembleRelease      # 签名包（ABI 拆分 + universal）
+./gradlew :app:assembleRelease      # 手机包 + 电视包（各含 ABI 拆分与 universal）
 ```
 
-产物在 `app/build/outputs/apk/`（`universal` 通用包 + 各 ABI 分包）。
+产物在 `app/build/outputs/apk/phone/release/` 与 `app/build/outputs/apk/tv/release/`，
+每个 flavor 都包含 `universal` 通用包与各 ABI 分包。
 
 ### 签名
 

@@ -2,6 +2,8 @@ package com.rainplayer.player
 
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ActivityInfo
+import android.media.AudioManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -30,6 +32,7 @@ import com.rainplayer.data.FnOsBackend
 import com.rainplayer.data.MediaBackend
 import com.rainplayer.data.PlaybackCapabilities
 import com.rainplayer.data.PlaybackPlan
+import com.rainplayer.data.SubtitleTrack
 import com.rainplayer.ui.theme.RainPlayerTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -37,17 +40,33 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import kotlin.math.roundToInt
 
+/** 一条可选轨道。既可能来自服务器元数据，也可能来自播放器实际解析出的轨道。 */
 data class TrackOption(
-    val id: String,
+    val key: String,
     val label: String,
-    val groupIndex: Int,
-    val trackIndex: Int,
+    val serverIndex: Int? = null,
+    val groupIndex: Int = -1,
+    val trackIndex: Int = 0,
     val language: String? = null,
+    val codec: String? = null,
+    val channels: Int? = null,
+    val imageBased: Boolean = false,
+    val external: Boolean = false,
     val selected: Boolean = false,
+    val note: String? = null,
 )
 
 enum class PlayerPanel { NONE, AUDIO, SUBTITLE, SPEED, INFO }
+
+enum class GestureKind { NONE, BRIGHTNESS, VOLUME, SPEED }
+
+data class GestureState(
+    val kind: GestureKind = GestureKind.NONE,
+    val value: Float = 0f,
+    val label: String = "",
+)
 
 data class PlayerUi(
     val title: String = "",
@@ -66,6 +85,10 @@ data class PlayerUi(
     val info: List<Pair<String, String>> = emptyList(),
     val capabilities: PlaybackCapabilities? = null,
     val canPlayNext: Boolean = false,
+    val gesture: GestureState = GestureState(),
+    val boosted: Boolean = false,
+    val notice: String? = null,
+    val subtitleNote: String? = null,
 )
 
 class PlayerActivity : ComponentActivity() {
@@ -74,14 +97,28 @@ class PlayerActivity : ComponentActivity() {
     private var player: ExoPlayer? = null
     private var plan: PlaybackPlan? = null
     private var backend: MediaBackend? = null
+    private var reporter: PlaybackReporter? = null
     private var currentItemId: String = ""
     private var nextItemId: String? = null
-    private var startReported = false
     private var lastPosition: Long = 0L
     private var lastControlsToggle: Long = 0L
 
+    // 用户选中的版本 / 轨道（详情页带过来，切集时沿用音轨与字幕偏好）
+    private var sourceId: String? = null
+    private var audioIndex: Int? = null
+    private var subtitleIndex: Int? = null
+    private var burnSubtitle = false
+
+    private var normalSpeed = 1f
+    private var currentBrightness = 0.5f
+    private var currentVolume = 0.5f
+    private var rewindJob: kotlinx.coroutines.Job? = null
+
     private val displayController by lazy { DisplayModeController(this) }
+    private var rotationController: RotationController? = null
     private val prefs: Prefs get() = Graph.prefs
+
+    private val audioManager by lazy { getSystemService(Context.AUDIO_SERVICE) as AudioManager }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -106,11 +143,19 @@ class PlayerActivity : ComponentActivity() {
         PlayQueue.mark(itemId)
         lastControlsToggle = System.currentTimeMillis()
         nextItemId = intent.getStringExtra(EXTRA_NEXT_ID)
+        sourceId = intent.getStringExtra(EXTRA_SOURCE_ID)
+        audioIndex = intent.getIntExtra(EXTRA_AUDIO_INDEX, -1).takeIf { it >= 0 }
+        subtitleIndex = intent.getIntExtra(EXTRA_SUBTITLE_INDEX, -1).takeIf { it >= 0 }
+        burnSubtitle = intent.getBooleanExtra(EXTRA_BURN_SUBTITLE, false)
+        normalSpeed = prefs.longPressSpeed
+
         ui = ui.copy(
             title = intent.getStringExtra(EXTRA_TITLE) ?: "正在播放",
             subtitle = intent.getStringExtra(EXTRA_SUBTITLE),
             canPlayNext = !nextItemId.isNullOrBlank(),
         )
+
+        readSystemLevels()
 
         setContent {
             RainPlayerTheme {
@@ -129,6 +174,9 @@ class PlayerActivity : ComponentActivity() {
                     onTranscode = { retry(forceTranscode = true) },
                     onDismissError = { ui = ui.copy(error = null) },
                     onNext = { playNext() },
+                    onBrightnessDelta = ::applyBrightnessDelta,
+                    onVolumeDelta = ::applyVolumeDelta,
+                    onSpeedBoost = ::applySpeedBoost,
                 )
             }
         }
@@ -141,17 +189,34 @@ class PlayerActivity : ComponentActivity() {
 
     // ------------------------------------------------------------ 播放控制
 
-    private suspend fun startPlayback(itemId: String, startMs: Long, forceTranscode: Boolean) {
+    private suspend fun startPlayback(
+        itemId: String,
+        startMs: Long,
+        forceTranscode: Boolean,
+        keepSelection: Boolean = true,
+    ) {
         ui = ui.copy(buffering = true, error = null, panel = PlayerPanel.NONE)
         val b = backend ?: return
-        val result = runCatching { b.playback(itemId, startMs, forceTranscode) }
+        val result = runCatching {
+            b.playback(
+                itemId = itemId,
+                startMs = startMs,
+                forceTranscode = forceTranscode,
+                sourceId = sourceId,
+                audioIndex = if (keepSelection) audioIndex else null,
+                subtitleIndex = if (keepSelection) subtitleIndex else null,
+                burnSubtitle = if (keepSelection) burnSubtitle else false,
+            )
+        }
         val p = result.getOrElse { e ->
             ui = ui.copy(buffering = false, error = e.message ?: "无法获取播放地址")
             return
         }
+        // 换片前先把上一部的进度落库，避免连播时丢失观看记录
+        reporter?.finish(lastPosition)
+        reporter = b.let { PlaybackReporter(it, p) }
         plan = p
         currentItemId = itemId
-        startReported = false
         ui = ui.copy(
             title = p.title.ifBlank { ui.title },
             subtitle = p.subtitle ?: ui.subtitle,
@@ -189,17 +254,13 @@ class PlayerActivity : ComponentActivity() {
                     Player.STATE_BUFFERING -> ui = ui.copy(buffering = true)
                     Player.STATE_READY -> {
                         ui = ui.copy(buffering = false, durationMs = exo.duration.coerceAtLeast(0L))
-                        if (!startReported) {
-                            startReported = true
-                            lifecycleScope.launch {
-                                runCatching { backend?.reportStart(p, exo.currentPosition) }
-                            }
-                        }
+                        reporter?.markReady(exo.currentPosition)
                         applyDisplayMode(exo)
                     }
                     Player.STATE_ENDED -> {
                         showControls()
                         ui = ui.copy(panel = PlayerPanel.NONE)
+                        reporter?.finish(exo.duration.coerceAtLeast(0L))
                         if (prefs.autoPlayNext) playNext()
                     }
                 }
@@ -238,6 +299,7 @@ class PlayerActivity : ComponentActivity() {
         return buildList {
             add("片源" to (p.container?.uppercase() ?: "未知"))
             add("播放方式" to if (p.direct) "直通（不转码）" else "服务器转码")
+            if (p.subtitleBurnedIn) add("字幕" to "服务器烧录（图形字幕）")
             add("动态范围" to (p.dynamicRange ?: "SDR"))
             if (p.dolbyVision) {
                 add("杜比视界" to if (caps?.dolbyVision == true) "本机支持" else "本机不支持，将回退 HDR10/SDR")
@@ -258,46 +320,87 @@ class PlayerActivity : ComponentActivity() {
                 append("）")
             })
             add("显示能力" to "${caps?.maxWidth ?: 0}x${caps?.maxHeight ?: 0} @ ${caps?.maxRefreshRate?.toInt() ?: 0}Hz")
-            if (p.audioTracks.isNotEmpty()) {
-                add("音轨数" to "${p.audioTracks.size}")
-            }
-            if (p.subtitleTracks.isNotEmpty()) {
-                add("字幕数" to "${p.subtitleTracks.size}")
-            }
+            if (p.audioTracks.isNotEmpty()) add("音轨数" to "${p.audioTracks.size}")
+            if (p.subtitleTracks.isNotEmpty()) add("字幕数" to "${p.subtitleTracks.size}")
         }
     }
 
+    /**
+     * 轨道清单以「服务器元数据」为准，再用播放器实际解析结果补上选中状态。
+     *
+     * 只依赖 exo.currentTracks 会漏掉两类轨道：本机既不能解码也不能直通的音轨
+     * （例如 DTS-HD）、以及 PGS 这类没有渲染器的图形字幕——它们在 ExoPlayer
+     * 里是 unsupported，界面上看起来就像「识别不出」。
+     */
     private fun refreshTracks(exo: ExoPlayer) {
-        val audio = mutableListOf<TrackOption>()
-        val subtitles = mutableListOf<TrackOption>()
-        exo.currentTracks.groups.forEachIndexed { groupIndex, group ->
-            val type = group.type
-            if (type != C.TRACK_TYPE_AUDIO && type != C.TRACK_TYPE_TEXT) return@forEachIndexed
-            for (trackIndex in 0 until group.length) {
-                val format = group.getTrackFormat(trackIndex)
-                val label = buildString {
-                    append(
-                        format.label
-                            ?: format.language
-                            ?: if (type == C.TRACK_TYPE_AUDIO) "音轨 ${trackIndex + 1}" else "字幕 ${trackIndex + 1}"
-                    )
-                    format.codecs?.let { append(" · ").append(it.uppercase()) }
-                    if (type == C.TRACK_TYPE_AUDIO && format.channelCount > 0) {
-                        append(" · ").append(channelName(format.channelCount))
-                    }
-                }
-                val option = TrackOption(
-                    id = "$groupIndex-$trackIndex",
-                    label = label,
-                    groupIndex = groupIndex,
-                    trackIndex = trackIndex,
-                    language = format.language,
-                    selected = group.isTrackSelected(trackIndex),
-                )
-                if (type == C.TRACK_TYPE_AUDIO) audio += option else subtitles += option
+        val p = plan
+        val audioGroups = mutableListOf<Pair<Int, Tracks.Group>>()
+        val textGroups = mutableListOf<Pair<Int, Tracks.Group>>()
+        exo.currentTracks.groups.forEachIndexed { index, group ->
+            when (group.type) {
+                C.TRACK_TYPE_AUDIO -> audioGroups += index to group
+                C.TRACK_TYPE_TEXT -> textGroups += index to group
             }
         }
-        ui = ui.copy(audio = audio, subtitles = subtitles)
+
+        val audio = (p?.audioTracks ?: emptyList()).mapIndexed { i, track ->
+            val matched = audioGroups.getOrNull(i)
+            val note = AudioSupport.describe(this, track.codec, track.channels)
+            TrackOption(
+                key = "a-$i",
+                label = buildString {
+                    append(track.label)
+                    track.codec?.let { append(" · ").append(it.uppercase()) }
+                    track.channels?.let { if (it > 0) append(" · ").append(channelName(it)) }
+                    if (note.isNotBlank()) append(" · ").append(note)
+                },
+                serverIndex = track.index,
+                groupIndex = matched?.first ?: -1,
+                trackIndex = 0,
+                language = track.language,
+                codec = track.codec,
+                channels = track.channels,
+                selected = matched?.second?.let { g ->
+                    (0 until g.length).any { g.isTrackSelected(it) }
+                } ?: (track.index == p?.audioStreamIndex),
+            )
+        }
+
+        val subtitles = (p?.subtitleTracks ?: emptyList()).mapIndexed { i, track ->
+            val matched = textGroups.firstOrNull { (_, group) ->
+                (0 until group.length).any { idx ->
+                    val f = group.getTrackFormat(idx)
+                    f.label != null && f.label == track.label
+                }
+            }
+            TrackOption(
+                key = "s-$i",
+                label = buildString {
+                    append(track.label)
+                    append(" · ").append(track.codecLabel)
+                    if (track.forced) append(" · 强制")
+                    if (track.imageBased) append(" · 图形字幕")
+                },
+                serverIndex = track.index,
+                groupIndex = matched?.first ?: -1,
+                trackIndex = 0,
+                language = track.language,
+                codec = track.codec,
+                imageBased = track.imageBased,
+                external = track.isExternal,
+                selected = matched != null && (0 until matched.second.length).any {
+                    matched.second.isTrackSelected(it)
+                },
+            )
+        }
+
+        ui = ui.copy(
+            audio = audio,
+            subtitles = subtitles,
+            subtitleNote = if (subtitles.any { it.imageBased }) {
+                "PGS 等图形字幕本机无法渲染，选择后需服务器转码烧录"
+            } else null,
+        )
     }
 
     private fun channelName(channels: Int): String = when (channels) {
@@ -310,7 +413,11 @@ class PlayerActivity : ComponentActivity() {
 
     private suspend fun buildSubtitleConfigurations(p: PlaybackPlan): List<MediaItem.SubtitleConfiguration> {
         val configs = mutableListOf<MediaItem.SubtitleConfiguration>()
-        val externals = p.subtitleTracks.filter { it.isExternal && !it.url.isNullOrBlank() }
+        // 图形字幕（PGS/DVB/DVD）Media3 没有渲染器，塞进去只会得到一条空轨道，
+        // 这类字幕走服务器烧录，不在这里添加。
+        val externals = p.subtitleTracks.filter {
+            it.isExternal && !it.url.isNullOrBlank() && !it.imageBased
+        }
         externals.forEachIndexed { index, track ->
             val mime = mimeFor(track.codec, track.url) ?: return@forEachIndexed
             val uri = if (backend is FnOsBackend) {
@@ -328,7 +435,7 @@ class PlayerActivity : ComponentActivity() {
         return configs
     }
 
-    private suspend fun downloadSubtitle(track: com.rainplayer.data.SubtitleTrack, index: Int): File? {
+    private suspend fun downloadSubtitle(track: SubtitleTrack, index: Int): File? {
         val b = backend as? FnOsBackend ?: return null
         val ext = when (track.codec?.lowercase()) {
             "ass", "ssa" -> "ass"
@@ -374,6 +481,7 @@ class PlayerActivity : ComponentActivity() {
         player?.seekTo(ms.coerceAtLeast(0L))
         showControls()
         ui = ui.copy(positionMs = ms)
+        reporter?.progress(ms, true)
     }
 
     private fun seekBy(deltaMs: Long) {
@@ -385,46 +493,87 @@ class PlayerActivity : ComponentActivity() {
         val now = System.currentTimeMillis()
         if (now - lastControlsToggle < 200) return
         lastControlsToggle = now
-        if (!ui.controlsVisible) lastControlsToggle = now
         ui = ui.copy(
             controlsVisible = !ui.controlsVisible,
             panel = if (ui.controlsVisible) PlayerPanel.NONE else ui.panel,
         )
     }
 
+    // ------------------------------------------------------------ 轨道切换
+
     private fun selectAudio(option: TrackOption) {
         val exo = player ?: return
-        runCatching {
-            val group = exo.currentTracks.groups[option.groupIndex]
-            exo.trackSelectionParameters = exo.trackSelectionParameters.buildUpon()
-                .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, false)
-                .clearOverridesOfType(C.TRACK_TYPE_AUDIO)
-                .addOverride(TrackSelectionOverride(group.mediaTrackGroup, option.trackIndex))
-                .build()
-        }
         ui = ui.copy(panel = PlayerPanel.NONE)
+        audioIndex = option.serverIndex
+        if (option.groupIndex >= 0) {
+            runCatching {
+                val group = exo.currentTracks.groups[option.groupIndex]
+                exo.trackSelectionParameters = exo.trackSelectionParameters.buildUpon()
+                    .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, false)
+                    .clearOverridesOfType(C.TRACK_TYPE_AUDIO)
+                    .addOverride(TrackSelectionOverride(group.mediaTrackGroup, 0))
+                    .build()
+            }
+            return
+        }
+        // 播放器里没有这条轨（多半是本机解不了），改让服务器转码成 AAC
+        notice("该音轨本机无法解码，正在切换为服务器转码")
+        val position = exo.currentPosition
+        lifecycleScope.launch { startPlayback(currentItemId, position, forceTranscode = true) }
     }
 
     private fun selectSubtitle(option: TrackOption?) {
         val exo = player ?: return
-        runCatching {
-            val params = exo.trackSelectionParameters.buildUpon()
-            if (option == null) {
-                params.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true).clearOverridesOfType(C.TRACK_TYPE_TEXT)
-            } else {
-                val group = exo.currentTracks.groups[option.groupIndex]
-                params.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
-                    .clearOverridesOfType(C.TRACK_TYPE_TEXT)
-                    .addOverride(TrackSelectionOverride(group.mediaTrackGroup, option.trackIndex))
-            }
-            exo.trackSelectionParameters = params.build()
-        }
         ui = ui.copy(panel = PlayerPanel.NONE)
+        subtitleIndex = option?.serverIndex
+        if (option == null) {
+            burnSubtitle = false
+            runCatching {
+                exo.trackSelectionParameters = exo.trackSelectionParameters.buildUpon()
+                    .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
+                    .clearOverridesOfType(C.TRACK_TYPE_TEXT)
+                    .build()
+            }
+            return
+        }
+        if (option.imageBased) {
+            // PGS / DVB / VOBSUB 只能由服务器烧录进画面
+            notice("图形字幕需服务器转码烧录，画质可能略有下降")
+            burnSubtitle = true
+            val position = exo.currentPosition
+            lifecycleScope.launch {
+                startPlayback(currentItemId, position, forceTranscode = true)
+            }
+            return
+        }
+        burnSubtitle = false
+        if (option.groupIndex >= 0) {
+            runCatching {
+                val group = exo.currentTracks.groups[option.groupIndex]
+                exo.trackSelectionParameters = exo.trackSelectionParameters.buildUpon()
+                    .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
+                    .clearOverridesOfType(C.TRACK_TYPE_TEXT)
+                    .addOverride(TrackSelectionOverride(group.mediaTrackGroup, 0))
+                    .build()
+            }
+        } else {
+            notice("该字幕无法在当前播放方式下加载，正在切换为服务器转码")
+            val position = exo.currentPosition
+            lifecycleScope.launch { startPlayback(currentItemId, position, forceTranscode = true) }
+        }
     }
 
     private fun setSpeed(speed: Float) {
         player?.setPlaybackSpeed(speed)
         ui = ui.copy(speed = speed, panel = PlayerPanel.NONE)
+    }
+
+    private fun notice(text: String) {
+        ui = ui.copy(notice = text)
+        lifecycleScope.launch {
+            delay(2_500)
+            if (ui.notice == text) ui = ui.copy(notice = null)
+        }
     }
 
     private fun retry(forceTranscode: Boolean) {
@@ -445,6 +594,98 @@ class PlayerActivity : ComponentActivity() {
         lifecycleScope.launch { startPlayback(next, 0L, false) }
         nextItemId = PlayQueue.peekNext()
         ui = ui.copy(canPlayNext = !nextItemId.isNullOrBlank())
+    }
+
+    // ------------------------------------------------------------ 手势与旋转
+
+    private fun readSystemLevels() {
+        currentBrightness = window.attributes.screenBrightness
+            .takeIf { it in 0f..1f } ?: 0.5f
+        val max = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1)
+        currentVolume = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC).toFloat() / max
+    }
+
+    /** 手势是增量式：左右半屏上下滑，累加到一个 0..1 的绝对量上。 */
+    private fun applyBrightnessDelta(delta: Float) {
+        if (!prefs.gestureEnabled || !prefs.brightnessGesture) return
+        currentBrightness = (currentBrightness + delta).coerceIn(0.02f, 1f)
+        val attrs = window.attributes
+        attrs.screenBrightness = currentBrightness
+        window.attributes = attrs
+        ui = ui.copy(
+            gesture = GestureState(
+                GestureKind.BRIGHTNESS,
+                currentBrightness,
+                "${(currentBrightness * 100).roundToInt()}%",
+            )
+        )
+    }
+
+    private fun applyVolumeDelta(delta: Float) {
+        if (!prefs.gestureEnabled || !prefs.volumeGesture) return
+        currentVolume = (currentVolume + delta).coerceIn(0f, 1f)
+        val max = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1)
+        val index = (currentVolume * max).roundToInt().coerceIn(0, max)
+        runCatching { audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, index, 0) }
+        ui = ui.copy(
+            gesture = GestureState(
+                GestureKind.VOLUME,
+                currentVolume,
+                "${(currentVolume * 100).roundToInt()}%",
+            )
+        )
+    }
+
+    /** 长按快进/快退：快进直接提播放速率，快退靠连续回跳（负速率在多数机型上不可靠）。 */
+    private fun applySpeedBoost(active: Boolean, forward: Boolean) {
+        val exo = player ?: return
+        if (!prefs.gestureEnabled || !prefs.longPressSpeedEnabled) return
+        if (active) {
+            if (ui.boosted) return
+            normalSpeed = ui.speed
+            val speed = prefs.longPressSpeed
+            if (forward) {
+                exo.setPlaybackSpeed(speed)
+            } else {
+                rewindJob = lifecycleScope.launch {
+                    while (isActive) {
+                        val pos = (exo.currentPosition - 1_000L).coerceAtLeast(0L)
+                        exo.seekTo(pos)
+                        ui = ui.copy(positionMs = pos)
+                        delay(180)
+                    }
+                }
+            }
+            ui = ui.copy(
+                boosted = true,
+                speed = speed,
+                gesture = GestureState(
+                    GestureKind.SPEED,
+                    speed,
+                    if (forward) "快进 ${speed}x" else "快退 ${speed}x",
+                ),
+            )
+        } else {
+            if (!ui.boosted) return
+            rewindJob?.cancel()
+            rewindJob = null
+            exo.setPlaybackSpeed(normalSpeed)
+            ui = ui.copy(boosted = false, speed = normalSpeed, gesture = GestureState())
+        }
+    }
+
+    private fun startRotation() {
+        if (!prefs.autoRotate) return
+        val controller = rotationController ?: RotationController(this) { orientation ->
+            runCatching { requestedOrientation = orientation }
+        }.also { rotationController = it }
+        if (controller.start()) return
+        // 没有加速度计时退回系统自动旋转（同样忽略旋转锁定）
+        runCatching { requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR }
+    }
+
+    private fun stopRotation() {
+        rotationController?.stop()
     }
 
     // ------------------------------------------------------------ 生命周期
@@ -472,10 +713,9 @@ class PlayerActivity : ComponentActivity() {
     private suspend fun progressLoop() {
         while (lifecycleScope.isActive) {
             delay(10_000)
-            val p = plan ?: continue
             val exo = player ?: continue
             if (exo.playbackState != Player.STATE_READY) continue
-            runCatching { backend?.reportProgress(p, exo.currentPosition, !exo.isPlaying) }
+            reporter?.progress(exo.currentPosition, !exo.isPlaying)
         }
     }
 
@@ -518,6 +758,16 @@ class PlayerActivity : ComponentActivity() {
         return super.onKeyDown(keyCode, event)
     }
 
+    override fun onResume() {
+        super.onResume()
+        if (prefs.keepScreenOn) {
+            window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        } else {
+            window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
+        startRotation()
+    }
+
     override fun onBackPressed() {
         when {
             ui.panel != PlayerPanel.NONE -> ui = ui.copy(panel = PlayerPanel.NONE)
@@ -528,26 +778,26 @@ class PlayerActivity : ComponentActivity() {
 
     override fun onPause() {
         super.onPause()
-        val p = plan
-        val exo = player
-        if (p != null && exo != null) {
-            lifecycleScope.launch { runCatching { backend?.reportProgress(p, exo.currentPosition, true) } }
-        }
-        exo?.pause()
+        stopRotation()
+        val exo = player ?: return
+        // 后台只是暂停，不结束会话；位置照样落库
+        reporter?.progress(exo.currentPosition, true)
+        exo.pause()
     }
 
     override fun onStop() {
         super.onStop()
-        val p = plan
-        val exo = player
-        if (p != null && exo != null) {
-            val pos = exo.currentPosition
-            lifecycleScope.launch { runCatching { backend?.reportStop(p, pos) } }
+        val pos = player?.currentPosition ?: lastPosition
+        if (isFinishing) {
+            reporter?.finish(pos)
+        } else {
+            reporter?.progress(pos, true)
         }
     }
 
     override fun onDestroy() {
         displayController.restore()
+        reporter?.finish(player?.currentPosition ?: lastPosition)
         releasePlayer()
         super.onDestroy()
     }
@@ -569,6 +819,10 @@ class PlayerActivity : ComponentActivity() {
         const val EXTRA_SUBTITLE = "subtitle"
         const val EXTRA_NEXT_ID = "next_id"
         const val EXTRA_START_MS = "start_ms"
+        const val EXTRA_SOURCE_ID = "source_id"
+        const val EXTRA_AUDIO_INDEX = "audio_index"
+        const val EXTRA_SUBTITLE_INDEX = "subtitle_index"
+        const val EXTRA_BURN_SUBTITLE = "burn_subtitle"
 
         fun intent(
             context: Context,
@@ -577,12 +831,20 @@ class PlayerActivity : ComponentActivity() {
             subtitle: String? = null,
             nextId: String? = null,
             startMs: Long = 0L,
+            sourceId: String? = null,
+            audioIndex: Int? = null,
+            subtitleIndex: Int? = null,
+            burnSubtitle: Boolean = false,
         ): Intent = Intent(context, PlayerActivity::class.java).apply {
             putExtra(EXTRA_ITEM_ID, itemId)
             putExtra(EXTRA_TITLE, title)
             putExtra(EXTRA_SUBTITLE, subtitle)
             putExtra(EXTRA_NEXT_ID, nextId)
             putExtra(EXTRA_START_MS, startMs)
+            putExtra(EXTRA_SOURCE_ID, sourceId)
+            putExtra(EXTRA_AUDIO_INDEX, audioIndex ?: -1)
+            putExtra(EXTRA_SUBTITLE_INDEX, subtitleIndex ?: -1)
+            putExtra(EXTRA_BURN_SUBTITLE, burnSubtitle)
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
     }

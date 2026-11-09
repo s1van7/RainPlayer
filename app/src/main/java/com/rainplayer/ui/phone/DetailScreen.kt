@@ -12,9 +12,11 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -24,9 +26,11 @@ import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -49,6 +53,7 @@ import coil.compose.AsyncImage
 import com.rainplayer.data.Episode
 import com.rainplayer.data.MediaDetail
 import com.rainplayer.data.MediaType
+import com.rainplayer.data.PlaybackOptions
 import com.rainplayer.data.Season
 import com.rainplayer.player.PlayerActivity
 import com.rainplayer.ui.AppSession
@@ -83,6 +88,13 @@ fun DetailScreen(
     var favorite by remember { mutableStateOf(false) }
     var played by remember { mutableStateOf(false) }
 
+    // 版本 / 音轨 / 字幕 选择
+    var options by remember { mutableStateOf<PlaybackOptions?>(null) }
+    var versionId by remember { mutableStateOf<String?>(null) }
+    var audioIndex by remember { mutableStateOf<Int?>(null) }
+    var subtitleIndex by remember { mutableStateOf<Int?>(null) }
+    var dialog by remember { mutableStateOf<DetailDialog?>(null) }
+
     LaunchedEffect(itemId, backend) {
         if (backend == null) return@LaunchedEffect
         loading = true
@@ -97,6 +109,18 @@ fun DetailScreen(
             }
             .onFailure { error = it.message }
         loading = false
+    }
+
+    // 拉取版本/音轨/字幕清单；换版本后重新拉一次该版本的轨道
+    LaunchedEffect(itemId, versionId, detail?.playTargetId) {
+        val b = backend ?: return@LaunchedEffect
+        val target = detail?.playTargetId ?: return@LaunchedEffect
+        runCatching { b.playbackOptions(target, versionId) }
+            .onSuccess { o ->
+                options = o
+                if (audioIndex == null) audioIndex = o.defaultAudioIndex
+                if (subtitleIndex == null) subtitleIndex = o.defaultSubtitleIndex
+            }
     }
 
     LaunchedEffect(selectedSeason?.id) {
@@ -118,18 +142,46 @@ fun DetailScreen(
         } else {
             com.rainplayer.player.PlayQueue.clear()
         }
+        val chosenSubtitle = options?.subtitleTracks?.firstOrNull { it.index == subtitleIndex }
         context.startActivity(
             PlayerActivity.intent(
                 context = context,
                 itemId = targetId,
-                title = if (d.type == MediaType.EPISODE) d.title else d.title,
+                title = d.title,
                 subtitle = subtitle ?: d.originalTitle,
                 nextId = next,
+                sourceId = versionId,
+                audioIndex = audioIndex,
+                subtitleIndex = subtitleIndex,
+                burnSubtitle = chosenSubtitle?.imageBased == true,
             )
         )
     }
 
     Box(Modifier.fillMaxSize()) {
+        // 版本 / 音轨 / 字幕 选择弹窗（Dialog 是独立窗口，放在哪一层都可以）
+        DetailOptionDialog(
+            dialog = dialog,
+            options = options,
+            versionId = versionId,
+            audioIndex = audioIndex,
+            subtitleIndex = subtitleIndex,
+            onDismiss = { dialog = null },
+            onVersion = {
+                versionId = it
+                audioIndex = null
+                subtitleIndex = null
+                dialog = null
+            },
+            onAudio = {
+                audioIndex = it
+                dialog = null
+            },
+            onSubtitle = {
+                subtitleIndex = it
+                dialog = null
+            },
+        )
         when {
             loading -> LoadingView()
             error != null -> ErrorView(error!!) { }
@@ -264,6 +316,38 @@ fun DetailScreen(
                     }
 
                     item {
+                        val o = options
+                        if (o != null && (o.hasVersions || o.hasAudioChoice || o.hasSubtitleChoice)) {
+                            Row(
+                                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 2.dp),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                if (o.hasVersions) {
+                                    SelectChip(
+                                        label = o.versions.firstOrNull { it.id == versionId }?.name
+                                            ?: o.versions.firstOrNull()?.name ?: "版本",
+                                        prefix = "版本",
+                                    ) { dialog = DetailDialog.VERSION }
+                                }
+                                if (o.hasAudioChoice) {
+                                    SelectChip(
+                                        label = o.audioTracks.firstOrNull { it.index == audioIndex }?.label
+                                            ?: "默认",
+                                        prefix = "音轨",
+                                    ) { dialog = DetailDialog.AUDIO }
+                                }
+                                if (o.hasSubtitleChoice) {
+                                    SelectChip(
+                                        label = o.subtitleTracks.firstOrNull { it.index == subtitleIndex }?.codecLabel
+                                            ?: "关闭",
+                                        prefix = "字幕",
+                                    ) { dialog = DetailDialog.SUBTITLE }
+                                }
+                            }
+                        }
+                    }
+
+                    item {
                         Row(
                             Modifier.fillMaxWidth().padding(horizontal = 16.dp),
                             horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -367,6 +451,128 @@ fun DetailScreen(
         }
     }
 }
+
+@Composable
+private fun SelectChip(prefix: String, label: String, onClick: () -> Unit) {
+    Row(
+        Modifier
+            .clip(RoundedCornerShape(8.dp))
+            .background(RainPlayerSurface)
+            .clickable { onClick() }
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(prefix, color = RainPlayerTextDim, fontSize = 11.sp)
+        Spacer(Modifier.width(6.dp))
+        Text(
+            label,
+            color = RainPlayerText,
+            fontSize = 12.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.widthIn(max = 110.dp),
+        )
+    }
+}
+
+@Composable
+private fun DetailOptionDialog(
+    dialog: DetailDialog?,
+    options: PlaybackOptions?,
+    versionId: String?,
+    audioIndex: Int?,
+    subtitleIndex: Int?,
+    onDismiss: () -> Unit,
+    onVersion: (String) -> Unit,
+    onAudio: (Int?) -> Unit,
+    onSubtitle: (Int?) -> Unit,
+) {
+    if (dialog == null || options == null) return
+    val title = when (dialog) {
+        DetailDialog.VERSION -> "选择版本"
+        DetailDialog.AUDIO -> "选择音轨"
+        DetailDialog.SUBTITLE -> "选择字幕"
+    }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title, color = RainPlayerText, fontSize = 16.sp) },
+        text = {
+            LazyColumn(Modifier.heightIn(max = 380.dp)) {
+                when (dialog) {
+                    DetailDialog.VERSION -> items(options.versions, key = { it.id }) { v ->
+                        DialogRow(
+                            label = v.name,
+                            detail = v.summary.takeIf { it.isNotBlank() },
+                            selected = v.id == (versionId ?: options.versions.firstOrNull()?.id),
+                        ) { onVersion(v.id) }
+                    }
+
+                    DetailDialog.AUDIO -> items(options.audioTracks, key = { it.index }) { t ->
+                        DialogRow(
+                            label = t.label,
+                            detail = listOfNotNull(
+                                t.codec?.uppercase(),
+                                t.channels?.let { "${it}ch" },
+                            ).joinToString(" · ").ifBlank { null },
+                            selected = t.index == audioIndex,
+                        ) { onAudio(t.index) }
+                    }
+
+                    DetailDialog.SUBTITLE -> {
+                        item {
+                            DialogRow(
+                                label = "关闭字幕",
+                                detail = null,
+                                selected = subtitleIndex == null,
+                            ) { onSubtitle(null) }
+                        }
+                        items(options.subtitleTracks, key = { it.index }) { t ->
+                            DialogRow(
+                                label = t.label,
+                                detail = buildString {
+                                    append(t.codecLabel)
+                                    if (t.imageBased) append(" · 需服务器烧录")
+                                    if (t.forced) append(" · 强制")
+                                },
+                                selected = t.index == subtitleIndex,
+                            ) { onSubtitle(t.index) }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("关闭") }
+        },
+        containerColor = RainPlayerSurface,
+    )
+}
+
+@Composable
+private fun DialogRow(label: String, detail: String?, selected: Boolean, onClick: () -> Unit) {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .padding(vertical = 2.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .background(if (selected) RainPlayerAccent.copy(alpha = 0.18f) else Color.Transparent)
+            .clickable { onClick() }
+            .padding(horizontal = 10.dp, vertical = 9.dp),
+    ) {
+        Text(
+            (if (selected) "✓ " else "") + label,
+            color = if (selected) RainPlayerAccent else RainPlayerText,
+            fontSize = 13.sp,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
+        detail?.let {
+            Text(it, color = RainPlayerTextDim, fontSize = 11.sp, maxLines = 1)
+        }
+    }
+}
+
+private enum class DetailDialog { VERSION, AUDIO, SUBTITLE }
 
 @Composable
 private fun EpisodeRow(ep: Episode, seriesTitle: String, onClick: () -> Unit) {

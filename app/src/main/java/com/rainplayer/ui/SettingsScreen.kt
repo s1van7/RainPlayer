@@ -49,6 +49,12 @@ fun SettingsScreen(
     var matchDisplay by remember { mutableStateOf(prefs.matchDisplayMode) }
     var keepScreen by remember { mutableStateOf(prefs.keepScreenOn) }
     var autoNext by remember { mutableStateOf(prefs.autoPlayNext) }
+    var gestureEnabled by remember { mutableStateOf(prefs.gestureEnabled) }
+    var brightnessGesture by remember { mutableStateOf(prefs.brightnessGesture) }
+    var volumeGesture by remember { mutableStateOf(prefs.volumeGesture) }
+    var longPressSpeed by remember { mutableStateOf(prefs.longPressSpeedEnabled) }
+    var speedValue by remember { mutableStateOf(prefs.longPressSpeed) }
+    var autoRotate by remember { mutableStateOf(prefs.autoRotate) }
     val capabilities = remember { PlayerCapabilities.detect(Graph.app) }
 
     Column(
@@ -175,6 +181,59 @@ fun SettingsScreen(
             }
         }
 
+        Section("手势与旋转") {
+            ToggleRow(
+                title = "启用手势控制",
+                desc = "关闭后播放页只响应点击，不响应滑动和长按",
+                checked = gestureEnabled,
+            ) {
+                gestureEnabled = it
+                prefs.gestureEnabled = it
+            }
+            ToggleRow(
+                title = "左半屏上下滑调亮度",
+                desc = "在画面左半边上下滑动，调节屏幕亮度（不改系统亮度设置）",
+                checked = brightnessGesture,
+            ) {
+                brightnessGesture = it
+                prefs.brightnessGesture = it
+            }
+            ToggleRow(
+                title = "右半屏上下滑调音量",
+                desc = "在画面右半边上下滑动，调节媒体音量",
+                checked = volumeGesture,
+            ) {
+                volumeGesture = it
+                prefs.volumeGesture = it
+            }
+            ToggleRow(
+                title = "长按倍速快进 / 快退",
+                desc = "长按右半屏快进、长按左半屏快退，松手恢复原速",
+                checked = longPressSpeed,
+            ) {
+                longPressSpeed = it
+                prefs.longPressSpeedEnabled = it
+            }
+            if (longPressSpeed) {
+                ChoiceRow(
+                    title = "长按倍速",
+                    options = listOf(2f to "2x", 3f to "3x", 4f to "4x"),
+                    selected = speedValue,
+                ) { value ->
+                    prefs.longPressSpeed = value
+                    speedValue = value
+                }
+            }
+            ToggleRow(
+                title = "跟随重力旋转",
+                desc = "播放时按手机姿态自动切换横竖屏，忽略系统的旋转锁定",
+                checked = autoRotate,
+            ) {
+                autoRotate = it
+                prefs.autoRotate = it
+            }
+        }
+
         Section("本机解码能力") {
             Column(
                 Modifier
@@ -255,6 +314,45 @@ private fun ToggleRow(title: String, desc: String, checked: Boolean, onChange: (
                 checkedTrackColor = RainPlayerAccent,
             ),
         )
+    }
+}
+
+@Composable
+private fun ChoiceRow(
+    title: String,
+    options: List<Pair<Float, String>>,
+    selected: Float,
+    onSelect: (Float) -> Unit,
+) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(vertical = 3.dp)
+            .background(RainPlayerSurface, RoundedCornerShape(10.dp))
+            .padding(horizontal = 14.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(title, color = RainPlayerText, fontSize = 14.sp, modifier = Modifier.weight(1f))
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            options.forEach { (value, label) ->
+                val active = kotlin.math.abs(selected - value) < 0.01f
+                Box(
+                    Modifier
+                        .background(
+                            if (active) RainPlayerAccent else Color(0x14FFFFFF),
+                            RoundedCornerShape(7.dp),
+                        )
+                        .clickable { onSelect(value) }
+                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                ) {
+                    Text(
+                        label,
+                        color = if (active) Color.Black else RainPlayerText,
+                        fontSize = 12.sp,
+                    )
+                }
+            }
+        }
     }
 }
 

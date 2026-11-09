@@ -27,8 +27,21 @@ public partial class PlayerWindow : Window
     private bool _ended;
     private DateTime _lastReport = DateTime.MinValue;
     private readonly List<string> _tempSubtitles = new();
+    private readonly string? _sourceId;
+    private readonly int? _audioIndex;
+    private readonly int? _subtitleIndex;
+    private readonly bool _burnSubtitle;
+    private bool _stopReported;
 
-    public PlayerWindow(IMediaBackend backend, string itemId, string title, List<Episode>? queue = null)
+    public PlayerWindow(
+        IMediaBackend backend,
+        string itemId,
+        string title,
+        List<Episode>? queue = null,
+        string? sourceId = null,
+        int? audioIndex = null,
+        int? subtitleIndex = null,
+        bool burnSubtitle = false)
     {
         InitializeComponent();
 
@@ -36,6 +49,10 @@ public partial class PlayerWindow : Window
         _currentItemId = itemId;
         _title = title;
         _queue = queue ?? new List<Episode>();
+        _sourceId = sourceId;
+        _audioIndex = audioIndex;
+        _subtitleIndex = subtitleIndex;
+        _burnSubtitle = burnSubtitle;
 
         TitleText.Text = title;
         SubtitleText.Text = "";
@@ -110,7 +127,9 @@ public partial class PlayerWindow : Window
 
         try
         {
-            var plan = await _backend.GetPlaybackAsync(_currentItemId, startOverrideMs, forceTranscode);
+            var plan = await _backend.GetPlaybackAsync(
+                _currentItemId, startOverrideMs, forceTranscode,
+                _sourceId, _audioIndex, _subtitleIndex, _burnSubtitle);
             _plan = plan;
 
             TitleText.Text = plan.Title;
@@ -130,12 +149,63 @@ public partial class PlayerWindow : Window
         }
     }
 
+    /// <summary>
+    /// 结束播放时的上报：先落位置（Progress），再结束会话（Stopped），
+    /// 最后用 UserData 接口兜底写一次。只执行一次，且位置为 0 时用已知进度代替，
+    /// 避免把「继续观看」的记录清空。
+    /// </summary>
+    private async Task ReportStopSafeAsync(long position)
+    {
+        var plan = _plan;
+        if (plan == null || _stopReported) return;
+        _stopReported = true;
+
+        var pos = position > 0 ? position : plan.StartPositionMs;
+        if (pos <= 0) pos = 0;
+        var completed = plan.DurationMs > 0 && pos >= plan.DurationMs * 0.95;
+
+        try
+        {
+            await _backend.ReportProgressAsync(plan, pos, true);
+            await _backend.ReportStopAsync(plan, pos);
+            await _backend.PersistPositionAsync(plan, pos, completed);
+        }
+        catch
+        {
+            // 上报失败不影响退出
+        }
+    }
+
+    /// <summary>把详情页选中的音轨/字幕应用到 mpv（mpv 的轨道 id 从 1 开始，按文件顺序）。</summary>
+    private void ApplySelectedTracks()
+    {
+        var plan = _plan;
+        var player = _player;
+        if (plan == null || player == null) return;
+
+        if (_audioIndex != null)
+        {
+            var ordinal = plan.AudioTracks.FindIndex(t => t.Index == _audioIndex.Value);
+            if (ordinal >= 0) player.SetAudioTrack(ordinal + 1);
+        }
+        if (_subtitleIndex != null)
+        {
+            var ordinal = plan.SubtitleTracks.FindIndex(t => t.Index == _subtitleIndex.Value);
+            if (ordinal >= 0) player.SetSubtitleTrack(ordinal + 1);
+        }
+        else
+        {
+            player.SetSubtitleTrack(0);
+        }
+    }
+
     private void OnFileLoaded()
     {
         Dispatcher.BeginInvoke(() =>
         {
             StatusLayer.Visibility = Visibility.Collapsed;
             _player?.SetVolume((int)VolumeSlider.Value);
+            ApplySelectedTracks();
             UpdateTrackButtons();
             ShowControls();
         });
@@ -148,8 +218,7 @@ public partial class PlayerWindow : Window
             if (_closing || _ended) return;
             _ended = true;
 
-            if (_plan != null)
-                await _backend.ReportStopAsync(_plan, _plan.DurationMs);
+            await ReportStopSafeAsync(_plan?.DurationMs ?? 0);
 
             var settings = ((App)Application.Current).Settings;
             if (settings.AutoPlayNext && await PlayNextAsync()) return;
@@ -513,7 +582,7 @@ public partial class PlayerWindow : Window
         _hideTimer.Stop();
 
         var position = _player?.GetPositionMs() ?? 0;
-        if (_plan != null) _ = _backend.ReportStopAsync(_plan, position);
+        _ = ReportStopSafeAsync(position);
 
         ((App)Application.Current).Settings.Save();
 

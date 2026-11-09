@@ -271,6 +271,13 @@ public partial class MainWindow : Window
 
     // ============================================================ 详情
 
+    // 详情页的版本 / 音轨 / 字幕选择
+    private MediaDetail? _detailCache;
+    private PlaybackOptions? _options;
+    private string? _sourceId;
+    private int? _audioIndex;
+    private int? _subtitleIndex;
+
     private async Task ShowDetailAsync(string itemId, string? fallbackTitle = null)
     {
         if (_busy) return;
@@ -283,8 +290,24 @@ public partial class MainWindow : Window
         try
         {
             var detail = await _backend.GetDetailAsync(itemId);
+            _detailCache = detail;
             _current = new Navigation(ViewKind.Detail, itemId, detail.Title);
             PageTitle.Text = detail.Title;
+
+            _sourceId = null;
+            _audioIndex = null;
+            _subtitleIndex = null;
+            _options = null;
+            try
+            {
+                _options = await _backend.GetPlaybackOptionsAsync(detail.PlayTargetId);
+                _audioIndex = _options.DefaultAudioIndex;
+                _subtitleIndex = _options.DefaultSubtitleIndex;
+            }
+            catch
+            {
+                // 拿不到轨道清单就不显示选择项
+            }
 
             HideEmpty();
             ContentPanel.Children.Add(BuildDetail(detail));
@@ -449,6 +472,13 @@ public partial class MainWindow : Window
         actions.Children.Add(watchedButton);
 
         info.Children.Add(actions);
+
+        var optionBar = BuildPlaybackOptionBar();
+        if (optionBar != null)
+        {
+            info.Children.Add(optionBar);
+        }
+
         header.Children.Add(info);
         root.Children.Add(header);
 
@@ -609,6 +639,100 @@ public partial class MainWindow : Window
         return root;
     }
 
+    /// <summary>详情页的「版本 / 音轨 / 字幕」下拉选择条。</summary>
+    private UIElement? BuildPlaybackOptionBar()
+    {
+        var options = _options;
+        if (options == null) return null;
+        if (!options.HasVersions && !options.HasAudioChoice && !options.HasSubtitleChoice) return null;
+
+        var bar = new WrapPanel { Margin = new Thickness(0, 16, 0, 0) };
+
+        bar.Children.Add(new TextBlock
+        {
+            Text = "播放设置",
+            Foreground = (Brush)FindResource("SubTextBrush"),
+            FontSize = 12,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0, 0, 12, 0),
+        });
+
+        if (options.HasVersions)
+        {
+            var box = new ComboBox
+            {
+                Width = 260,
+                Margin = new Thickness(0, 0, 12, 0),
+                ItemsSource = options.Versions.Select(v => $"{v.Name}   {v.Summary}").ToList(),
+                SelectedIndex = Math.Max(0, options.Versions.FindIndex(v => v.Id == _sourceId)),
+            };
+            box.SelectionChanged += async (_, _) =>
+            {
+                if (box.SelectedIndex < 0 || box.SelectedIndex >= options.Versions.Count) return;
+                _sourceId = options.Versions[box.SelectedIndex].Id;
+                // 换版本后音轨/字幕清单会变，重新拉一次
+                try
+                {
+                    _options = await _backend.GetPlaybackOptionsAsync(_current.Id, _sourceId);
+                    _audioIndex = _options.DefaultAudioIndex;
+                    _subtitleIndex = _options.DefaultSubtitleIndex;
+                    // 原地重绘，不污染返回栈
+                    if (_detailCache != null)
+                    {
+                        ContentPanel.Children.Clear();
+                        ContentPanel.Children.Add(BuildDetail(_detailCache));
+                    }
+                }
+                catch
+                {
+                }
+            };
+            bar.Children.Add(box);
+        }
+
+        if (options.HasAudioChoice)
+        {
+            var box = new ComboBox
+            {
+                Width = 200,
+                Margin = new Thickness(0, 0, 12, 0),
+                ItemsSource = options.AudioTracks.Select(t =>
+                    $"{t.Label}{(t.Codec != null ? " · " + t.Codec.ToUpperInvariant() : "")}").ToList(),
+                SelectedIndex = Math.Max(0, options.AudioTracks.FindIndex(t => t.Index == _audioIndex)),
+            };
+            box.SelectionChanged += (_, _) =>
+            {
+                if (box.SelectedIndex >= 0 && box.SelectedIndex < options.AudioTracks.Count)
+                    _audioIndex = options.AudioTracks[box.SelectedIndex].Index;
+            };
+            bar.Children.Add(box);
+        }
+
+        if (options.HasSubtitleChoice)
+        {
+            var items = new List<string> { "关闭字幕" };
+            items.AddRange(options.SubtitleTracks.Select(t =>
+                $"{t.Label} · {t.CodecLabel}{(t.ImageBased ? "（需转码烧录）" : "")}"));
+            var box = new ComboBox
+            {
+                Width = 220,
+                ItemsSource = items,
+                SelectedIndex = _subtitleIndex == null
+                    ? 0
+                    : Math.Max(0, options.SubtitleTracks.FindIndex(t => t.Index == _subtitleIndex) + 1),
+            };
+            box.SelectionChanged += (_, _) =>
+            {
+                _subtitleIndex = box.SelectedIndex <= 0
+                    ? null
+                    : options.SubtitleTracks[box.SelectedIndex - 1].Index;
+            };
+            bar.Children.Add(box);
+        }
+
+        return bar;
+    }
+
     // ============================================================ 播放
 
     private async Task StartPlaybackAsync(MediaDetail detail, string itemId)
@@ -637,7 +761,10 @@ public partial class MainWindow : Window
                 if (queue.Count == 0) queue = detail.Episodes;
             }
 
-            var player = new PlayerWindow(_backend, itemId, detail.Title, queue);
+            var chosenSubtitle = _options?.SubtitleTracks.FirstOrDefault(t => t.Index == _subtitleIndex);
+            var player = new PlayerWindow(
+                _backend, itemId, detail.Title, queue,
+                _sourceId, _audioIndex, _subtitleIndex, chosenSubtitle?.ImageBased == true);
             player.Owner = this;
             player.Show();
         }

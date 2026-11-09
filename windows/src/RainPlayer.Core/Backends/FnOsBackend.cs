@@ -419,7 +419,15 @@ public sealed class FnOsBackend : IMediaBackend
 
     // ------------------------------------------------------------- 播放
 
-    public async Task<PlaybackPlan> GetPlaybackAsync(string itemId, long startMs, bool forceTranscode = false, CancellationToken ct = default)
+    public async Task<PlaybackPlan> GetPlaybackAsync(
+        string itemId,
+        long startMs,
+        bool forceTranscode = false,
+        string? sourceId = null,
+        int? audioIndex = null,
+        int? subtitleIndex = null,
+        bool burnSubtitle = false,
+        CancellationToken ct = default)
     {
         var infoBody = JsonSerializer.Serialize(new { item_guid = itemId });
         var info = await PostDataAsync("/v/api/v1/play/info", infoBody, ct).ConfigureAwait(false);
@@ -506,6 +514,11 @@ public sealed class FnOsBackend : IMediaBackend
         {
             try
             {
+                // 按用户选中的 stream index 匹配 guid
+                var chosenAudio = audioStreams.FirstOrDefault(a => (a.Int("index") ?? -1) == audioIndex);
+                if (chosenAudio.ValueKind != JsonValueKind.Object) chosenAudio = audioStreams.FirstOrDefault();
+                var chosenSubtitle = subtitleStreams.FirstOrDefault(s => (s.Int("index") ?? -1) == subtitleIndex);
+
                 var linkBody = JsonSerializer.Serialize(new
                 {
                     media_guid = mediaGuid,
@@ -515,9 +528,9 @@ public sealed class FnOsBackend : IMediaBackend
                     bitrate,
                     startTimestamp = startSec,
                     audio_encoder = "aac",
-                    audio_guid = audioStreams.FirstOrDefault().Str("guid") ?? "",
-                    subtitle_guid = "",
-                    channels = 2,
+                    audio_guid = chosenAudio.Str("guid") ?? "",
+                    subtitle_guid = chosenSubtitle.Str("guid") ?? "",
+                    channels = chosenAudio.Int("channels") ?? 2,
                     forced_sdr = 0,
                 });
                 var link = (await PostDataAsync("/v/api/v1/play/play", linkBody, ct).ConfigureAwait(false)).Str("play_link");
@@ -573,6 +586,67 @@ public sealed class FnOsBackend : IMediaBackend
             FnDirectAudioIndex = infoRoot.Int("direct_link_audio_index") ?? 0,
             PosterUrl = ImgUrl(item.Str("posters")),
         };
+    }
+
+    /// <summary>
+    /// 飞牛影视没有「多版本」概念（同一影片就是一个 media），
+    /// 这里只返回音轨/字幕清单，版本列表留空。
+    /// </summary>
+    public async Task<PlaybackOptions> GetPlaybackOptionsAsync(string itemId, string? sourceId = null, CancellationToken ct = default)
+    {
+        var options = new PlaybackOptions();
+        try
+        {
+            var infoBody = JsonSerializer.Serialize(new { item_guid = itemId });
+            var info = await PostDataAsync("/v/api/v1/play/info", infoBody, ct).ConfigureAwait(false);
+            var mediaGuid = info.Str("media_guid");
+            if (string.IsNullOrEmpty(mediaGuid)) return options;
+
+            var streamBody = JsonSerializer.Serialize(new { media_guid = mediaGuid, level = 1 });
+            var stream = await PostDataAsync("/v/api/v1/stream", streamBody, ct).ConfigureAwait(false);
+
+            var ai = 0;
+            foreach (var a in stream.Arr("audio_streams"))
+            {
+                options.AudioTracks.Add(new MediaTrack
+                {
+                    Index = a.Int("index") ?? ai,
+                    Label = a.Str("title") ?? a.Str("codec_name") ?? $"音轨 {ai + 1}",
+                    Language = a.Str("language"),
+                    Codec = a.Str("codec_name"),
+                    Channels = a.Int("channels"),
+                    Bitrate = a.Int("bps"),
+                });
+                ai++;
+            }
+
+            var si = 0;
+            foreach (var s in stream.Arr("subtitle_streams"))
+            {
+                var external = (s.Int("is_external") ?? 0) == 1;
+                var codec = s.Str("codec_name");
+                options.SubtitleTracks.Add(new SubtitleTrack
+                {
+                    Index = s.Int("index") ?? si,
+                    Label = s.Str("title") ?? s.Str("language") ?? $"字幕 {si + 1}",
+                    Language = s.Str("language"),
+                    Codec = codec,
+                    Url = external && s.Str("guid") is { } guid ? $"{_base}/v/api/v1/subtitle/dl/{guid}" : null,
+                    IsExternal = external,
+                    Headers = StaticHeaders(),
+                    ImageBased = (codec ?? "").ToLowerInvariant() is "pgssub" or "hdmv_pgs_subtitle" or "dvdsub" or "dvbsub",
+                });
+                si++;
+            }
+
+            options.DefaultAudioIndex = options.AudioTracks.FirstOrDefault()?.Index;
+            options.DefaultSubtitleIndex = options.SubtitleTracks.FirstOrDefault()?.Index;
+        }
+        catch
+        {
+            // 拿不到轨道清单不影响播放，详情页会隐藏选择项
+        }
+        return options;
     }
 
     private static string? BuildEpisodeLabel(JsonElement item)

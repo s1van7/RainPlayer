@@ -87,6 +87,38 @@ class Prefs(context: Context) {
         get() = sp.getBoolean("auto_next", true)
         set(v) = sp.edit().putBoolean("auto_next", v).apply()
 
+    // ---- 手势与旋转 ----
+
+    /** 手势总开关：关闭后播放页只响应点击，不响应滑动与长按。 */
+    var gestureEnabled: Boolean
+        get() = sp.getBoolean("gesture_enabled", true)
+        set(v) = sp.edit().putBoolean("gesture_enabled", v).apply()
+
+    /** 左半屏上下滑调亮度。 */
+    var brightnessGesture: Boolean
+        get() = sp.getBoolean("gesture_brightness", true)
+        set(v) = sp.edit().putBoolean("gesture_brightness", v).apply()
+
+    /** 右半屏上下滑调音量。 */
+    var volumeGesture: Boolean
+        get() = sp.getBoolean("gesture_volume", true)
+        set(v) = sp.edit().putBoolean("gesture_volume", v).apply()
+
+    /** 长按左右半屏倍速快退 / 快进。 */
+    var longPressSpeedEnabled: Boolean
+        get() = sp.getBoolean("gesture_long_press", true)
+        set(v) = sp.edit().putBoolean("gesture_long_press", v).apply()
+
+    /** 长按倍速值（2.0 / 3.0 / 4.0）。 */
+    var longPressSpeed: Float
+        get() = sp.getFloat("long_press_speed", 3.0f)
+        set(v) = sp.edit().putFloat("long_press_speed", v).apply()
+
+    /** 播放时跟随重力自动横屏。 */
+    var autoRotate: Boolean
+        get() = sp.getBoolean("auto_rotate", true)
+        set(v) = sp.edit().putBoolean("auto_rotate", v).apply()
+
     /** 缓存的外部字幕目录（外挂字幕先落地再交给播放器）。 */
     var lastLibraryId: String?
         get() = sp.getString("last_library", null)

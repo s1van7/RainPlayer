@@ -27,30 +27,19 @@
         android:theme="@style/Theme.RainPlayer"
         android:usesCleartextTraffic="true">
 
+        <!-- 启动入口由 flavor 的清单决定：phone 用 MainActivity，tv 用 TvActivity -->
         <activity
             android:name=".ui.MainActivity"
             android:configChanges="keyboard|keyboardHidden|orientation|screenSize|screenLayout|smallestScreenSize|uiMode"
             android:exported="true"
-            android:label="@string/app_name"
             android:theme="@style/Theme.RainPlayer"
-            android:windowSoftInputMode="adjustResize">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
-        </activity>
+            android:windowSoftInputMode="adjustResize" />
 
         <activity
             android:name=".ui.tv.TvActivity"
             android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenSize|screenLayout|smallestScreenSize|uiMode"
             android:exported="true"
-            android:label="@string/app_name"
-            android:theme="@style/Theme.RainPlayer.Tv">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
-            </intent-filter>
-        </activity>
+            android:theme="@style/Theme.RainPlayer.Tv" />
 
         <activity
             android:name=".player.PlayerActivity"

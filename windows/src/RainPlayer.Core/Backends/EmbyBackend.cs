@@ -328,7 +328,15 @@ public sealed class EmbyBackend : IMediaBackend
 
     // ------------------------------------------------------------- 播放
 
-    public async Task<PlaybackPlan> GetPlaybackAsync(string itemId, long startMs, bool forceTranscode = false, CancellationToken ct = default)
+    public async Task<PlaybackPlan> GetPlaybackAsync(
+        string itemId,
+        long startMs,
+        bool forceTranscode = false,
+        string? sourceId = null,
+        int? audioIndex = null,
+        int? subtitleIndex = null,
+        bool burnSubtitle = false,
+        CancellationToken ct = default)
     {
         var body = JsonSerializer.Serialize(new
         {
@@ -337,18 +345,23 @@ public sealed class EmbyBackend : IMediaBackend
             IsPlayback = true,
             AutoOpenLiveStream = true,
             MaxStreamingBitrate = 200_000_000,
-            DeviceProfile = BuildDeviceProfile(forceTranscode),
+            MediaSourceId = sourceId,
+            AudioStreamIndex = audioIndex,
+            SubtitleStreamIndex = subtitleIndex,
+            DeviceProfile = BuildDeviceProfile(false),
         });
 
-        var text = await Http.PostJsonAsync(
-            Url($"/Items/{itemId}/PlaybackInfo?UserId={_userId}&StartTimeTicks={startMs * 10_000L}"),
-            body, TokenHeaders(), ct).ConfigureAwait(false);
+        var infoPath = $"/Items/{itemId}/PlaybackInfo?UserId={_userId}&StartTimeTicks={startMs * 10_000L}";
+        if (!string.IsNullOrEmpty(sourceId)) infoPath += $"&MediaSourceId={sourceId}";
+
+        var text = await Http.PostJsonAsync(Url(infoPath), body, TokenHeaders(), ct).ConfigureAwait(false);
 
         using var doc = JsonExt.Parse(text) ?? throw new InvalidOperationException("无法获取播放信息");
         var root = doc.RootElement;
         var sources = root.Arr("MediaSources");
         if (sources.Count == 0) throw new InvalidOperationException("服务器未返回媒体源");
-        var source = sources[0];
+        var source = sources.FirstOrDefault(s => s.Str("Id") == sourceId);
+        if (source.ValueKind != JsonValueKind.Object) source = sources[0];
 
         var mediaSourceId = source.Str("Id") ?? itemId;
         var playSessionId = root.Str("PlaySessionId");
@@ -363,38 +376,40 @@ public sealed class EmbyBackend : IMediaBackend
         var videoStream = streams.FirstOrDefault(s => s.Str("Type") == "Video");
 
         var audioTracks = new List<MediaTrack>();
-        var audioIndex = 0;
+        var audioOrdinal = 0;
         foreach (var s in streams.Where(s => s.Str("Type") == "Audio"))
         {
             audioTracks.Add(new MediaTrack
             {
-                Index = s.Int("Index") ?? audioIndex,
-                Label = s.StrOr("DisplayTitle", $"音轨 {audioIndex + 1}"),
+                Index = s.Int("Index") ?? audioOrdinal,
+                Label = s.StrOr("DisplayTitle", $"音轨 {audioOrdinal + 1}"),
                 Language = s.Str("Language"),
                 Codec = s.Str("Codec"),
                 Channels = s.Int("Channels"),
                 Bitrate = s.Int("BitRate"),
             });
-            audioIndex++;
+            audioOrdinal++;
         }
 
         var subtitleTracks = new List<SubtitleTrack>();
-        var subtitleIndex = 0;
+        var subtitleOrdinal = 0;
         foreach (var s in streams.Where(s => s.Str("Type") == "Subtitle"))
         {
             var delivery = s.Str("DeliveryUrl");
             subtitleTracks.Add(new SubtitleTrack
             {
-                Index = s.Int("Index") ?? subtitleIndex,
-                Label = s.StrOr("DisplayTitle", $"字幕 {subtitleIndex + 1}"),
+                Index = s.Int("Index") ?? subtitleOrdinal,
+                Label = s.StrOr("DisplayTitle", $"字幕 {subtitleOrdinal + 1}"),
                 Language = s.Str("Language"),
                 Codec = s.Str("Codec"),
                 Url = delivery != null
                     ? Url(delivery) + (delivery.Contains('?') ? "&" : "?") + $"api_key={_token}"
                     : null,
                 IsExternal = s.Bool("IsExternal") ?? (delivery != null),
+                ImageBased = IsImageSubtitle(s.Str("Codec")),
+                Forced = s.Bool("IsForced") ?? false,
             });
-            subtitleIndex++;
+            subtitleOrdinal++;
         }
 
         var videoRange = videoStream.Str("VideoRange");
@@ -405,16 +420,19 @@ public sealed class EmbyBackend : IMediaBackend
 
         var transcodingUrl = source.Str("TranscodingUrl");
         var supportsDirectPlay = source.Bool("SupportsDirectPlay") ?? true;
-        var useTranscode = forceTranscode || (!supportsDirectPlay && transcodingUrl != null);
+        // 图形字幕只能由服务器烧录，必须转码
+        var useTranscode = forceTranscode || burnSubtitle || (!supportsDirectPlay && transcodingUrl != null);
 
         string playUrl;
         var isHls = false;
-        if (useTranscode && transcodingUrl != null)
+        if (useTranscode)
         {
-            playUrl = Url(transcodingUrl) +
-                      (transcodingUrl.Contains("api_key") ? "" : $"&api_key={_token}");
-            isHls = transcodingUrl.Contains("m3u8", StringComparison.OrdinalIgnoreCase)
-                    || transcodingUrl.Contains("master", StringComparison.OrdinalIgnoreCase);
+            var built = (!forceTranscode && burnSubtitle)
+                ? BuildTranscodeUrl(itemId, mediaSourceId, playSessionId, audioIndex, subtitleIndex, burnSubtitle)
+                : transcodingUrl ?? BuildTranscodeUrl(itemId, mediaSourceId, playSessionId, audioIndex, subtitleIndex, burnSubtitle);
+            playUrl = Url(built) + (built.Contains("api_key") ? "" : $"&api_key={_token}");
+            isHls = built.Contains("m3u8", StringComparison.OrdinalIgnoreCase)
+                    || built.Contains("master", StringComparison.OrdinalIgnoreCase);
         }
         else
         {
@@ -464,7 +482,134 @@ public sealed class EmbyBackend : IMediaBackend
             DynamicRange = videoRangeType ?? videoRange,
             DolbyVision = dolbyVision,
             Container = container,
+            AudioStreamIndex = audioIndex,
+            SubtitleStreamIndex = subtitleIndex,
+            SubtitleBurnedIn = useTranscode && burnSubtitle,
         };
+    }
+
+    private static bool IsImageSubtitle(string? codec) => (codec ?? "").ToLowerInvariant() switch
+    {
+        "pgssub" or "pgs" or "hdmv_pgs_subtitle" or "dvdsub" or "dvd_subtitle" or "dvbsub" or "dvb_subtitle" => true,
+        _ => false,
+    };
+
+    private string BuildTranscodeUrl(
+        string itemId, string mediaSourceId, string? playSessionId,
+        int? audioIndex, int? subtitleIndex, bool burnSubtitle)
+    {
+        var sb = new System.Text.StringBuilder();
+        sb.Append($"/Videos/{itemId}/master.m3u8?MediaSourceId={mediaSourceId}&DeviceId={Config.DeviceId}");
+        if (!string.IsNullOrEmpty(playSessionId)) sb.Append($"&PlaySessionId={playSessionId}");
+        sb.Append("&VideoCodec=h264&AudioCodec=aac,ac3,eac3&VideoBitrate=120000000&AudioBitrate=640000");
+        sb.Append("&MaxAudioChannels=8&TranscodingMaxAudioChannels=8");
+        if (audioIndex != null) sb.Append($"&AudioStreamIndex={audioIndex.Value}");
+        if (burnSubtitle && subtitleIndex is >= 0)
+            sb.Append($"&SubtitleStreamIndex={subtitleIndex.Value}&SubtitleMethod=Burn");
+        else
+            sb.Append("&SubtitleMethod=Encode");
+        sb.Append("&SegmentContainer=ts&MinSegments=1&BreakOnNonKeyFrames=True&Context=Streaming&Protocol=hls");
+        return sb.ToString();
+    }
+
+    /// <summary>详情页用：把 MediaSources 映射成版本，把选中版本的 MediaStreams 映射成音轨/字幕。</summary>
+    public async Task<PlaybackOptions> GetPlaybackOptionsAsync(string itemId, string? sourceId = null, CancellationToken ct = default)
+    {
+        // 只是查轨道清单，不能置 IsPlayback=true，否则服务器会认为已经开播，
+        // 留下幽灵会话并影响观看记录
+        var body = JsonSerializer.Serialize(new
+        {
+            UserId = _userId,
+            IsPlayback = false,
+            AutoOpenLiveStream = false,
+            MaxStreamingBitrate = 200_000_000,
+            DeviceProfile = BuildDeviceProfile(false),
+        });
+        var text = await Http.PostJsonAsync(
+            Url($"/Items/{itemId}/PlaybackInfo?UserId={_userId}"), body, TokenHeaders(), ct).ConfigureAwait(false);
+        using var doc = JsonExt.Parse(text) ?? throw new InvalidOperationException("无法获取播放信息");
+        var root = doc.RootElement;
+        var sources = root.Arr("MediaSources");
+        if (sources.Count == 0) return new PlaybackOptions();
+
+        var options = new PlaybackOptions();
+        for (var i = 0; i < sources.Count; i++)
+        {
+            var s = sources[i];
+            var streams = s.Arr("MediaStreams");
+            var video = streams.FirstOrDefault(v => v.Str("Type") == "Video");
+            var audio = streams.FirstOrDefault(v => v.Str("Type") == "Audio");
+            var width = video.Int("Width");
+            var height = video.Int("Height");
+            options.Versions.Add(new MediaVersion
+            {
+                Id = s.Str("Id") ?? itemId,
+                Name = s.Str("Name") ?? BuildVersionName(width, height, video.Str("Codec"), audio.Str("Codec")) ?? $"版本 {i + 1}",
+                Container = s.Str("Container"),
+                Width = width,
+                Height = height,
+                Bitrate = s.Int("Bitrate"),
+                SizeBytes = s.Long("Size"),
+                VideoCodec = video.Str("Codec"),
+                AudioCodec = audio.Str("Codec"),
+                DynamicRange = video.Str("VideoRangeType") ?? video.Str("VideoRange"),
+                IsDefault = i == 0,
+            });
+        }
+
+        var active = sources.FirstOrDefault(s => s.Str("Id") == sourceId);
+        if (active.ValueKind != JsonValueKind.Object) active = sources[0];
+        var activeStreams = active.Arr("MediaStreams");
+
+        var audioIdx = 0;
+        foreach (var s in activeStreams.Where(v => v.Str("Type") == "Audio"))
+        {
+            options.AudioTracks.Add(new MediaTrack
+            {
+                Index = s.Int("Index") ?? audioIdx,
+                Label = s.Str("DisplayTitle") ?? s.Str("Title") ?? $"音轨 {audioIdx + 1}",
+                Language = s.Str("Language"),
+                Codec = s.Str("Codec"),
+                Channels = s.Int("Channels"),
+                Bitrate = s.Int("BitRate"),
+            });
+            audioIdx++;
+        }
+
+        var subIdx = 0;
+        foreach (var s in activeStreams.Where(v => v.Str("Type") == "Subtitle"))
+        {
+            var delivery = s.Str("DeliveryUrl");
+            options.SubtitleTracks.Add(new SubtitleTrack
+            {
+                Index = s.Int("Index") ?? subIdx,
+                Label = s.Str("DisplayTitle") ?? s.Str("Title") ?? $"字幕 {subIdx + 1}",
+                Language = s.Str("Language"),
+                Codec = s.Str("Codec"),
+                Url = delivery != null
+                    ? Url(delivery) + (delivery.Contains('?') ? "&" : "?") + $"api_key={_token}"
+                    : null,
+                IsExternal = s.Bool("IsExternal") ?? (delivery != null),
+                ImageBased = IsImageSubtitle(s.Str("Codec")),
+                Forced = s.Bool("IsForced") ?? false,
+            });
+            subIdx++;
+        }
+
+        options.DefaultAudioIndex = options.AudioTracks.FirstOrDefault()?.Index;
+        options.DefaultSubtitleIndex = options.SubtitleTracks.FirstOrDefault()?.Index;
+        return options;
+    }
+
+    private static string? BuildVersionName(int? width, int? height, string? videoCodec, string? audioCodec)
+    {
+        if (width == null || height == null) return null;
+        var res = width >= 7000 || height >= 3500 ? "8K"
+            : width >= 3500 || height >= 1900 ? "4K"
+            : width >= 1800 || height >= 1000 ? "1080P"
+            : $"{height}P";
+        return string.Join(" · ", new[] { res, videoCodec?.ToUpperInvariant(), audioCodec?.ToUpperInvariant() }
+            .Where(s => !string.IsNullOrEmpty(s)));
     }
 
     private static object BuildDeviceProfile(bool forceTranscode)
@@ -547,15 +692,46 @@ public sealed class EmbyBackend : IMediaBackend
     {
         try
         {
+            // 完整 body：缺 PlaySessionId / PlayMethod 时部分 Emby 版本会把这次停止
+            // 当成「未知会话结束」，直接清掉该条目的观看记录。
             var payload = new Dictionary<string, object>
             {
                 ["ItemId"] = plan.ItemId,
                 ["PositionTicks"] = positionMs * 10_000L,
+                ["Failed"] = false,
+                ["CanSeek"] = true,
+                ["IsPaused"] = true,
+                ["IsMuted"] = false,
+                ["PlayMethod"] = plan.Direct ? "DirectPlay" : "Transcode",
+                ["PlaylistLength"] = 1,
+                ["PlaylistIndex"] = 0,
             };
             if (plan.MediaSourceId != null) payload["MediaSourceId"] = plan.MediaSourceId;
             if (plan.PlaySessionId != null) payload["PlaySessionId"] = plan.PlaySessionId;
             await Http.PostJsonAsync(Url("/Sessions/Playing/Stopped"), JsonSerializer.Serialize(payload), TokenHeaders(), ct)
                 .ConfigureAwait(false);
+        }
+        catch
+        {
+        }
+    }
+
+    /// <summary>
+    /// 非会话方式直接写用户数据。会话上报失败或被系统打断时靠这一步兜底，
+    /// 避免「继续观看」里的进度被清零。
+    /// </summary>
+    public async Task PersistPositionAsync(PlaybackPlan plan, long positionMs, bool completed, CancellationToken ct = default)
+    {
+        try
+        {
+            var payload = new Dictionary<string, object>
+            {
+                ["PlaybackPositionTicks"] = positionMs * 10_000L,
+                ["Played"] = completed,
+            };
+            await Http.PostJsonAsync(
+                Url($"/Users/{_userId}/Items/{plan.ItemId}/UserData"),
+                JsonSerializer.Serialize(payload), TokenHeaders(), ct).ConfigureAwait(false);
         }
         catch
         {
@@ -572,9 +748,12 @@ public sealed class EmbyBackend : IMediaBackend
             ["IsMuted"] = false,
             ["CanSeek"] = true,
             ["PlayMethod"] = plan.Direct ? "DirectPlay" : "Transcode",
+            ["RepeatMode"] = "RepeatNone",
         };
         if (plan.MediaSourceId != null) payload["MediaSourceId"] = plan.MediaSourceId;
         if (plan.PlaySessionId != null) payload["PlaySessionId"] = plan.PlaySessionId;
+        if (plan.AudioStreamIndex != null) payload["AudioStreamIndex"] = plan.AudioStreamIndex.Value;
+        if (plan.SubtitleStreamIndex != null) payload["SubtitleStreamIndex"] = plan.SubtitleStreamIndex.Value;
         if (start)
         {
             payload["PlaylistLength"] = 1;
