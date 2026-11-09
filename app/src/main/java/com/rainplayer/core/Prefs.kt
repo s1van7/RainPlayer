@@ -150,10 +150,15 @@ class Prefs(context: Context) {
 
     // ---- 评分源 ----
 
-    /** TMDB API Key（v3 auth key）。留空则不显示 TMDB 评分。 */
+    /**
+     * TMDB API Key（v3 auth key）。
+     *
+     * 没设置过（键不存在）时返回内置 Key，开箱即用；
+     * 用户主动清空（存的是空串）则视为关闭 TMDB 评分，不再回退到内置 Key。
+     */
     var tmdbApiKey: String
-        get() = sp.getString("tmdb_key", "") ?: ""
-        set(v) = sp.edit().putString("tmdb_key", v).apply()
+        get() = sp.getString("tmdb_key", null) ?: Keys.TMDB_API_KEY
+        set(v) = sp.edit().putString("tmdb_key", v.trim()).apply()
 
     /** 豆瓣评分（走第三方聚合接口，失败静默隐藏）。 */
     var doubanRating: Boolean

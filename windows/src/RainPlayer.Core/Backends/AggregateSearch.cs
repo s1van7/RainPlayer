@@ -39,7 +39,7 @@ public static class AggregateSearch
             }
             catch (Exception e)
             {
-                return (new List<MediaCard>(), failure: ((string, string)?)(cfg.Name, e.Message));
+                return (cards: new List<MediaCard>(), failure: ((string, string)?)(cfg.Name, e.Message));
             }
         }).ToList();
 

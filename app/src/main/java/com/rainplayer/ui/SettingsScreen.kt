@@ -158,7 +158,7 @@ fun SettingsScreen(
             Text("TMDB API Key", color = RainPlayerText, fontSize = 13.sp)
             Spacer(Modifier.height(2.dp))
             Text(
-                "在 themoviedb.org 免费申请 v3 Key 后填入；留空则不显示 TMDB 评分",
+                "已内置公共 Key，无需配置；想用自己的可在 themoviedb.org 申请后替换，清空则关闭 TMDB 评分",
                 color = RainPlayerTextDim,
                 fontSize = 10.sp,
             )
@@ -171,7 +171,23 @@ fun SettingsScreen(
                     com.rainplayer.data.RatingsRepo.clearCache()
                 },
                 singleLine = true,
-                placeholder = { Text("粘贴 API Key", color = Color(0x55FFFFFF), fontSize = 12.sp) },
+                placeholder = { Text("留空则关闭 TMDB 评分", color = Color(0x55FFFFFF), fontSize = 12.sp) },
+                trailingIcon = {
+                    if (tmdbKey.isNotBlank()) {
+                        Text(
+                            "恢复内置",
+                            color = RainPlayerAccent,
+                            fontSize = 11.sp,
+                            modifier = Modifier
+                                .clickable {
+                                    tmdbKey = com.rainplayer.core.Keys.TMDB_API_KEY
+                                    prefs.tmdbApiKey = com.rainplayer.core.Keys.TMDB_API_KEY
+                                    com.rainplayer.data.RatingsRepo.clearCache()
+                                }
+                                .padding(horizontal = 8.dp, vertical = 4.dp),
+                        )
+                    }
+                },
                 colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
                     focusedTextColor = RainPlayerText,
                     unfocusedTextColor = RainPlayerText,

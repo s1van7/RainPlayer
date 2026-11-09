@@ -31,7 +31,8 @@ data class ExternalRatings(
 /**
  * 评分聚合。
  *
- * - **TMDB**：官方 API，需要用户在设置里填自己的 v3 API Key。没填就整块隐藏。
+ * - **TMDB**：官方 API。内置了一把公共 v3 Key（见 [com.rainplayer.core.Keys]），
+ *   开箱即用；用户可以在设置里替换成自己的，清空则关闭这一项。
  * - **豆瓣**：豆瓣官方 API 早已关闭，这里走公开的第三方聚合接口（wmdb），
  *   拿不到就静默返回空——绝不因为评分把详情页卡住或报错。
  *
@@ -174,5 +175,7 @@ object RatingsRepo {
         int("douban_votes")?.let { return it }
         val raw = str("doubanVotes") ?: str("douban_votes")
         return raw?.toDoubleOrNull()?.toInt()
-    }    private fun round1(v: Double): Double = Math.round(v * 10.0) / 10.0
+    }
+
+    private fun round1(v: Double): Double = Math.round(v * 10.0) / 10.0
 }
