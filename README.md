@@ -196,23 +196,34 @@ cp keystore.properties.example keystore.properties
 ```
 
 `keystore.properties` 与 `*.jks` 已在 `.gitignore` 中，不会被提交。
-CI 环境可用环境变量代替：`LUMEN_STORE_FILE` / `LUMEN_STORE_PASSWORD` /
-`LUMEN_KEY_ALIAS` / `LUMEN_KEY_PASSWORD`。
+CI 环境改用 Secrets 注入（见下节），脚本会生成临时的 `keystore.properties`。
 
 主要依赖版本见 `gradle/libs.versions.toml`：AGP 8.7.3 / Kotlin 2.0.21 /
 Compose BOM 2024.12.01 / Media3 1.6.1 / Jellyfin FFmpeg 1.6.1+1。
 
-### 自动构建（可选）
+### 自动构建
 
-[`docs/ci-android.yml`](docs/ci-android.yml) 是现成的 GitHub Actions 配置：
-每次 push / PR 构建 release APK 并上传 `rain-apk` artifact，打 `v*` 标签
-会自动创建 Release 并附上全部 APK，也支持在 Actions 页面手动触发。
+仓库已配置 GitHub Actions（`.github/workflows/android.yml`，模板同步在
+[`docs/ci-android.yml`](docs/ci-android.yml)）：每次 push / PR 构建 release APK
+并上传 `rain-apk` artifact，打 `v*` 标签自动创建 Release 并附上全部 APK，
+也支持在 Actions 页面手动 `Run workflow`。
 
-启用方式：在网页端新建文件 `.github/workflows/android.yml`，
-把 `docs/ci-android.yml` 的内容整段粘进去即可。
+构建逻辑在 [`scripts/ci-build.sh`](scripts/ci-build.sh)，不用
+`android-actions/setup-android` —— 它内部会执行 `sdkmanager tools`，而
+cmdline-tools 16.0 起该包已移除，会直接失败。脚本改为复用 runner 预装的 SDK。
 
-> 之所以没有直接放在 `.github/workflows/` 下，是因为推送工作流文件需要
-> Personal Access Token 具备 `workflow` 权限；用网页创建一次就永久生效。
+**发布签名**：配置以下四个 Secrets 后，CI 产物会使用正式密钥签名，与 Release
+页的 APK 签名一致、可互相覆盖安装；四项全不配则回退 debug 签名，只配一部分会
+直接报错（避免产出签名不一致的包）。
+
+| Secret | 内容 |
+| --- | --- |
+| `KEYSTORE_BASE64` | `base64 -w0 rain.jks` 的完整输出，单行 |
+| `KEYSTORE_PASSWORD` | keystore 口令 |
+| `KEY_ALIAS` | 密钥别名 |
+| `KEY_PASSWORD` | 密钥口令 |
+
+fork 本仓库后若不需要正式签名，保持四个 Secrets 均为空即可。
 
 ---
 
