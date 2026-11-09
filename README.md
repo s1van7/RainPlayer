@@ -202,11 +202,17 @@ CI 环境可用环境变量代替：`LUMEN_STORE_FILE` / `LUMEN_STORE_PASSWORD` 
 主要依赖版本见 `gradle/libs.versions.toml`：AGP 8.7.3 / Kotlin 2.0.21 /
 Compose BOM 2024.12.01 / Media3 1.6.1 / Jellyfin FFmpeg 1.6.1+1。
 
-### 自动构建
+### 自动构建（可选）
 
-`.github/workflows/android.yml` 会在每次 push / PR 时构建 release APK，
-产物挂在 Actions 的 `rain-apk` artifact 下；打 `v*` 标签（如 `v1.0.0`）
-会自动创建 Release 并附上全部 APK。也可以在 Actions 页面手动 `Run workflow`。
+[`docs/ci-android.yml`](docs/ci-android.yml) 是现成的 GitHub Actions 配置：
+每次 push / PR 构建 release APK 并上传 `rain-apk` artifact，打 `v*` 标签
+会自动创建 Release 并附上全部 APK，也支持在 Actions 页面手动触发。
+
+启用方式：在网页端新建文件 `.github/workflows/android.yml`，
+把 `docs/ci-android.yml` 的内容整段粘进去即可。
+
+> 之所以没有直接放在 `.github/workflows/` 下，是因为推送工作流文件需要
+> Personal Access Token 具备 `workflow` 权限；用网页创建一次就永久生效。
 
 ---
 
