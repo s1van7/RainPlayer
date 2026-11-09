@@ -1,6 +1,6 @@
 # RainPlayer
 
-[![Release](https://img.shields.io/badge/release-v1.0.0-blue.svg)](https://github.com/s1van7/RainPlayer/releases)
+[![Release](https://img.shields.io/badge/release-v1.0.1-blue.svg)](https://github.com/s1van7/RainPlayer/releases)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 ![minSdk](https://img.shields.io/badge/minSdk-21-brightgreen.svg)
 ![platform](https://img.shields.io/badge/platform-Android%20%7C%20Android%20TV-3ddc84.svg)

@@ -34,3 +34,6 @@ release-keystore.jks
 
 # 本地密钥备份
 *.bak
+
+# 签名 Secrets 导出
+keystore-secrets.txt
