@@ -12,9 +12,9 @@
     <AssemblyName>RainPlayer</AssemblyName>
     <ApplicationIcon>Assets\app.ico</ApplicationIcon>
     <ApplicationManifest>app.manifest</ApplicationManifest>
-    <Version>1.2.2</Version>
-    <FileVersion>1.2.2.0</FileVersion>
-    <AssemblyVersion>1.2.2.0</AssemblyVersion>
+    <Version>1.2.3</Version>
+    <FileVersion>1.2.3.0</FileVersion>
+    <AssemblyVersion>1.2.3.0</AssemblyVersion>
     <Product>RainPlayer</Product>
     <Company>RainPlayer</Company>
     <Description>Emby / Jellyfin / 飞牛影视 桌面播放器</Description>

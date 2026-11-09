@@ -93,6 +93,8 @@ fun DetailScreen(
     onBack: () -> Unit,
     onOpenItem: (com.rainplayer.data.MediaCard) -> Unit,
     onOpenEpisode: (Episode) -> Unit = {},
+    /** 在当前页原地换成另一集（不叠栈），选集条用它。 */
+    onReplaceDetail: (String, String) -> Unit = { _, _ -> },
 ) {
     val backend = session.backend
     val context = LocalContext.current
@@ -108,6 +110,12 @@ fun DetailScreen(
     var played by remember { mutableStateOf(false) }
     var similar by remember { mutableStateOf<List<com.rainplayer.data.MediaCard>>(emptyList()) }
     var ratings by remember { mutableStateOf(com.rainplayer.data.ExternalRatings()) }
+
+    // 当前条目本身是一集时：记住它所属的剧集 / 季，并拉出同季其它集供切换
+    var currentEpisode by remember { mutableStateOf<Episode?>(null) }
+    var seriesSeasons by remember { mutableStateOf<List<Season>>(emptyList()) }
+    var siblings by remember { mutableStateOf<List<Episode>>(emptyList()) }
+    var episodeSeasonId by remember { mutableStateOf<String?>(null) }
 
     var options by remember { mutableStateOf<PlaybackOptions?>(null) }
     var versionId by remember { mutableStateOf<String?>(null) }
@@ -146,6 +154,30 @@ fun DetailScreen(
             tmdbKey = com.rainplayer.Graph.prefs.tmdbApiKey,
             doubanEnabled = com.rainplayer.Graph.prefs.doubanRating,
         )
+    }
+
+    // 单集：找到所属剧集与季，把同季的其它集拉出来
+    LaunchedEffect(itemId, detail?.type, backend) {
+        val d = detail ?: return@LaunchedEffect
+        if (d.type != MediaType.EPISODE) {
+            currentEpisode = null
+            seriesSeasons = emptyList()
+            siblings = emptyList()
+            return@LaunchedEffect
+        }
+        val b = backend ?: return@LaunchedEffect
+        val ep = runCatching { b.episode(itemId) }.getOrNull() ?: return@LaunchedEffect
+        currentEpisode = ep
+        val seriesId = ep.seriesId ?: return@LaunchedEffect
+        val seasons = runCatching { b.seasons(seriesId) }.getOrDefault(emptyList())
+        seriesSeasons = seasons
+        val seasonId = ep.seasonId
+            ?: seasons.firstOrNull { it.index == ep.seasonIndex }?.id
+            ?: seasons.firstOrNull()?.id
+        if (seasonId != null) {
+            episodeSeasonId = seasonId
+            siblings = runCatching { b.episodes(seriesId, seasonId) }.getOrDefault(emptyList())
+        }
     }
 
     LaunchedEffect(itemId, versionId, detail?.playTargetId) {
@@ -463,6 +495,116 @@ fun DetailScreen(
                             ActionIcon(Icons.Filled.VolumeUp, "音轨") { dialog = DetailDialog.AUDIO }
                             ActionIcon(Icons.Filled.Subtitles, "字幕") { dialog = DetailDialog.SUBTITLE }
                             ActionIcon(Icons.Filled.Refresh, "版本") { dialog = DetailDialog.VERSION }
+                        }
+                    }
+
+                    // ------------------------------------------- 选集（单集专用）
+                    if (d.type == MediaType.EPISODE && siblings.isNotEmpty()) {
+                        item {
+                            Column(Modifier.padding(top = 14.dp)) {
+                                Row(
+                                    Modifier.fillMaxWidth().padding(horizontal = 20.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Text(
+                                        "选集",
+                                        color = RainPlayerText,
+                                        fontSize = 15.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                    )
+                                    Spacer(Modifier.width(8.dp))
+                                    currentEpisode?.let { cur ->
+                                        Text(
+                                            "第 ${cur.seasonIndex} 季 · 共 ${siblings.size} 集",
+                                            color = RainPlayerTextDim,
+                                            fontSize = 10.sp,
+                                        )
+                                    }
+                                    Spacer(Modifier.weight(1f))
+                                    currentEpisode?.seriesId?.let { sid ->
+                                        Text(
+                                            "整部剧集 ›",
+                                            color = RainPlayerAccent,
+                                            fontSize = 11.sp,
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(8.dp))
+                                                .clickable {
+                                                    onReplaceDetail(
+                                                        sid,
+                                                        currentEpisode?.seriesName ?: d.title,
+                                                    )
+                                                }
+                                                .padding(horizontal = 8.dp, vertical = 4.dp),
+                                        )
+                                    }
+                                }
+
+                                if (seriesSeasons.size > 1) {
+                                    LazyRow(
+                                        contentPadding = PaddingValues(horizontal = 20.dp, vertical = 8.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    ) {
+                                        items(seriesSeasons) { season ->
+                                            val selected = season.id == episodeSeasonId
+                                            Box(
+                                                Modifier
+                                                    .clip(RoundedCornerShape(8.dp))
+                                                    .background(if (selected) RainPlayerAccent else RainPlayerSurface)
+                                                    .clickable {
+                                                        if (!selected) {
+                                                            episodeSeasonId = season.id
+                                                            scope.launch {
+                                                                val list = runCatching {
+                                                                    backend?.episodes(
+                                                                        currentEpisode?.seriesId ?: return@launch,
+                                                                        season.id,
+                                                                    )
+                                                                }.getOrNull()
+                                                                if (list != null) siblings = list
+                                                            }
+                                                        }
+                                                    }
+                                                    .padding(horizontal = 14.dp, vertical = 7.dp)
+                                            ) {
+                                                Text(
+                                                    season.name,
+                                                    color = if (selected) Color.Black else RainPlayerText,
+                                                    fontSize = 12.sp,
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+
+                                LazyRow(
+                                    contentPadding = PaddingValues(horizontal = 20.dp, vertical = 8.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                ) {
+                                    items(siblings, key = { it.id }) { ep ->
+                                        val selected = ep.id == itemId
+                                        Box(
+                                            Modifier
+                                                .clip(RoundedCornerShape(9.dp))
+                                                .background(
+                                                    if (selected) RainPlayerAccent
+                                                    else RainPlayerSurface
+                                                )
+                                                .clickable {
+                                                    if (!selected) onReplaceDetail(ep.id, ep.title)
+                                                }
+                                                .padding(horizontal = 14.dp, vertical = 9.dp)
+                                        ) {
+                                            Text(
+                                                if (selected) "第 ${ep.index} 集" else "${ep.index}",
+                                                color = if (selected) Color.Black else RainPlayerText,
+                                                fontSize = 12.sp,
+                                                fontWeight = if (selected) FontWeight.SemiBold
+                                                else FontWeight.Normal,
+                                            )
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
 

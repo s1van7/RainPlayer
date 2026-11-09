@@ -1,6 +1,15 @@
 package com.rainplayer.ui.phone
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -113,7 +122,6 @@ sealed interface Dest {
     data object AddServer : Dest
     data class LibraryDest(val library: Library) : Dest
     data class Detail(val id: String, val title: String) : Dest
-    data class EpisodeDest(val episodeId: String, val seriesTitle: String) : Dest
 }
 
 @Composable
@@ -142,36 +150,42 @@ private fun PhoneScaffold(session: AppSession, onLogout: () -> Unit) {
 
     BackHandler(enabled = stack.size > 1) { stack.removeAt(stack.lastIndex) }
 
-    Scaffold(
-        containerColor = RainPlayerBg,
-        bottomBar = {
-            if (stack.size == 1) {
-                NavigationBar(containerColor = RainPlayerSurface.copy(alpha = 0.96f)) {
-                    val tabs = listOf(
-                        Triple(Dest.Home, "首页", Icons.Filled.Home),
-                        Triple(Dest.Search, "搜索", Icons.Filled.Search),
-                        Triple(Dest.Settings, "设置", Icons.Filled.Settings),
-                    )
-                    tabs.forEach { (dest, label, icon) ->
-                        NavigationBarItem(
-                            selected = current == dest,
-                            onClick = { go(dest) },
-                            icon = { Icon(icon, contentDescription = label) },
-                            label = { Text(label, fontSize = 11.sp) },
-                            colors = NavigationBarItemDefaults.colors(
-                                selectedIconColor = Color.Black,
-                                selectedTextColor = RainPlayerAccent,
-                                indicatorColor = RainPlayerAccent,
-                                unselectedIconColor = RainPlayerTextDim,
-                                unselectedTextColor = RainPlayerTextDim,
-                            ),
-                        )
-                    }
+    val showNav = stack.size == 1
+    var navVisible by remember { mutableStateOf(true) }
+    var lastScrollAt by remember { mutableStateOf(0L) }
+
+    // 任何竖向拖动都先收起导航栏；停手 400ms 再弹回来
+    val scrollWatcher = remember {
+        object : NestedScrollConnection {
+            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                if (source == NestedScrollSource.Drag && kotlin.math.abs(available.y) > 0.5f) {
+                    lastScrollAt = System.currentTimeMillis()
+                    navVisible = false
                 }
+                return Offset.Zero
             }
-        },
-    ) { padding ->
-        Box(Modifier.padding(padding).fillMaxSize()) {
+        }
+    }
+
+    LaunchedEffect(showNav) {
+        if (!showNav) {
+            navVisible = false
+            return@LaunchedEffect
+        }
+        navVisible = true
+        while (true) {
+            delay(120)
+            if (!navVisible && System.currentTimeMillis() - lastScrollAt > 400) navVisible = true
+        }
+    }
+
+    Scaffold(containerColor = RainPlayerBg) { padding ->
+        Box(
+            Modifier
+                .padding(padding)
+                .fillMaxSize()
+                .nestedScroll(scrollWatcher)
+        ) {
             when (current) {
                 Dest.Home -> HomeScreen(
                     session = session,
@@ -227,15 +241,71 @@ private fun PhoneScaffold(session: AppSession, onLogout: () -> Unit) {
                     fallbackTitle = current.title,
                     onBack = { stack.removeAt(stack.lastIndex) },
                     onOpenItem = { card -> push(Dest.Detail(card.id, card.title)) },
-                    onOpenEpisode = { ep -> push(Dest.EpisodeDest(ep.id, current.title)) },
+                    // 点某一集：直接进这一集的详情（同一套排版，带选集条）
+                    onOpenEpisode = { ep -> push(Dest.Detail(ep.id, ep.title)) },
+                    // 选集条切换：原地替换栈顶，不越点越深
+                    onReplaceDetail = { id, title ->
+                        stack[stack.lastIndex] = Dest.Detail(id, title)
+                    },
                 )
+            }
 
-                is Dest.EpisodeDest -> EpisodeDetailScreen(
-                    session = session,
-                    episodeId = current.episodeId,
-                    fallbackTitle = current.seriesTitle,
-                    onBack = { stack.removeAt(stack.lastIndex) },
-                    onOpenSeries = { id, title -> push(Dest.Detail(id, title)) },
+            if (showNav) {
+                AnimatedVisibility(
+                    visible = navVisible,
+                    enter = fadeIn() + slideInVertically { it / 2 },
+                    exit = fadeOut() + slideOutVertically { it / 2 },
+                    modifier = Modifier.align(Alignment.BottomCenter),
+                ) {
+                    FloatingNavBar(current) { go(it) }
+                }
+            }
+        }
+    }
+}
+
+/** 悬浮底部导航：圆角胶囊，浮在内容之上，不占布局高度。 */
+@Composable
+private fun FloatingNavBar(current: Dest, onSelect: (Dest) -> Unit) {
+    val p = rainPalette
+    val tabs = listOf(
+        Triple(Dest.Home, "首页", Icons.Filled.Home),
+        Triple(Dest.Search, "搜索", Icons.Filled.Search),
+        Triple(Dest.Settings, "设置", Icons.Filled.Settings),
+    )
+    Row(
+        Modifier
+            .padding(bottom = 16.dp)
+            .clip(RoundedCornerShape(28.dp))
+            .background(p.surface.copy(alpha = 0.94f))
+            .border(1.dp, Color(0x1FFFFFFF), RoundedCornerShape(28.dp))
+            .padding(horizontal = 8.dp, vertical = 7.dp),
+        horizontalArrangement = Arrangement.spacedBy(2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        tabs.forEach { (dest, label, icon) ->
+            val selected = current == dest
+            Column(
+                Modifier
+                    .clip(RoundedCornerShape(22.dp))
+                    .background(
+                        if (selected) RainPlayerAccent.copy(alpha = 0.16f) else Color.Transparent
+                    )
+                    .clickable { onSelect(dest) }
+                    .padding(horizontal = 18.dp, vertical = 6.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Icon(
+                    icon,
+                    contentDescription = label,
+                    tint = if (selected) RainPlayerAccent else RainPlayerTextDim,
+                    modifier = Modifier.size(21.dp),
+                )
+                Spacer(Modifier.height(3.dp))
+                Text(
+                    label,
+                    color = if (selected) RainPlayerAccent else RainPlayerTextDim,
+                    fontSize = 10.sp,
                 )
             }
         }
@@ -285,7 +355,8 @@ private fun HomeScreen(
                     LazyColumn(
                         contentPadding = PaddingValues(
                             top = if (showHero) 0.dp else 60.dp,
-                            bottom = 28.dp,
+                            // 底部留白给悬浮导航栏让位，避免最后一行被盖住
+                            bottom = 110.dp,
                         ),
                     ) {
                         if (showHero) {
@@ -372,26 +443,33 @@ private fun HomeHeader(
         Box {
             Row(
                 Modifier
-                    .clip(RoundedCornerShape(24.dp))
-                    .background(if (onImage) Color(0x73000000) else Color.Transparent)
+                    .clip(RoundedCornerShape(30.dp))
+                    .background(
+                        if (onImage) Color(0xF0FFFFFF) else Color.Transparent
+                    )
                     .border(
                         width = if (onImage) 1.dp else 0.dp,
-                        color = if (onImage) Color(0x26FFFFFF) else Color.Transparent,
-                        shape = RoundedCornerShape(24.dp),
+                        color = if (onImage) Color(0x33FFFFFF) else Color.Transparent,
+                        shape = RoundedCornerShape(30.dp),
                     )
                     .clickable { onMenuOpenChange(true) }
-                    .padding(horizontal = if (onImage) 10.dp else 4.dp, vertical = 6.dp),
+                    .padding(
+                        start = if (onImage) 6.dp else 4.dp,
+                        end = if (onImage) 12.dp else 4.dp,
+                        top = if (onImage) 6.dp else 6.dp,
+                        bottom = if (onImage) 6.dp else 6.dp,
+                    ),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 if (active != null) {
-                    ServerAvatar(active, 32.dp)
+                    ServerAvatar(active, 34.dp, circle = onImage)
                     Spacer(Modifier.width(9.dp))
                 }
                 Column(Modifier.weight(1f, fill = false)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
                             active?.name ?: "RainPlayer",
-                            color = if (onImage) Color.White else RainPlayerText,
+                            color = if (onImage) Color(0xFF1B1F26) else RainPlayerText,
                             fontSize = 16.sp,
                             fontWeight = FontWeight.SemiBold,
                             maxLines = 1,
@@ -400,17 +478,19 @@ private fun HomeHeader(
                         Icon(
                             Icons.Filled.KeyboardArrowDown,
                             contentDescription = "服务器菜单",
-                            tint = if (onImage) Color(0xCCFFFFFF) else RainPlayerTextDim,
+                            tint = if (onImage) Color(0x99000000) else RainPlayerTextDim,
                             modifier = Modifier.size(18.dp),
                         )
                     }
-                    Text(
-                        subtitleOf(session),
-                        color = if (onImage) Color(0x99FFFFFF) else RainPlayerTextDim,
-                        fontSize = 9.sp,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
+                    if (!onImage) {
+                        Text(
+                            subtitleOf(session),
+                            color = RainPlayerTextDim,
+                            fontSize = 9.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
                 }
             }
 
@@ -437,10 +517,10 @@ private fun HomeHeader(
             Modifier
                 .size(38.dp)
                 .clip(CircleShape)
-                .background(if (onImage) Color(0x73000000) else Color.Transparent)
+                .background(if (onImage) Color(0xF0FFFFFF) else Color.Transparent)
                 .border(
                     width = if (onImage) 1.dp else 0.dp,
-                    color = if (onImage) Color(0x26FFFFFF) else Color.Transparent,
+                    color = if (onImage) Color(0x33FFFFFF) else Color.Transparent,
                     shape = CircleShape,
                 )
                 .clickable { onRefresh() },
@@ -449,7 +529,7 @@ private fun HomeHeader(
             Icon(
                 Icons.Filled.Refresh,
                 contentDescription = "刷新",
-                tint = if (onImage) Color(0xE6FFFFFF) else RainPlayerTextDim,
+                tint = if (onImage) Color(0xFF1B1F26) else RainPlayerTextDim,
                 modifier = Modifier.size(19.dp),
             )
         }
@@ -605,7 +685,11 @@ private fun LibrariesScreen(session: AppSession, onBack: () -> Unit, onOpen: (Li
                     EmptyView("没有可用的媒体库")
                 } else {
                     val allIds = s.data.map { it.id }
-                    LazyColumn(contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp)) {
+                    LazyColumn(
+                        contentPadding = PaddingValues(
+                            start = 16.dp, end = 16.dp, top = 4.dp, bottom = 110.dp,
+                        )
+                    ) {
                         items(s.data) { library ->
                             val hidden = config?.hiddenLibraries?.contains(library.id) == true
                             GlassSurface(
@@ -738,7 +822,9 @@ private fun LibraryScreen(session: AppSession, library: Library, onOpen: (MediaC
             items.isEmpty() -> EmptyView("这个媒体库还没有内容")
             else -> LazyVerticalGrid(
                 columns = GridCells.Adaptive(110.dp),
-                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
+                contentPadding = PaddingValues(
+                    start = 14.dp, end = 14.dp, top = 6.dp, bottom = 110.dp,
+                ),
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
@@ -839,7 +925,9 @@ private fun SearchScreen(session: AppSession, onOpen: (MediaCard) -> Unit) {
             results.isEmpty() -> EmptyView(if (searched) "没有找到相关结果" else "输入关键词开始搜索")
             else -> LazyVerticalGrid(
                 columns = GridCells.Adaptive(110.dp),
-                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
+                contentPadding = PaddingValues(
+                    start = 14.dp, end = 14.dp, top = 6.dp, bottom = 110.dp,
+                ),
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {

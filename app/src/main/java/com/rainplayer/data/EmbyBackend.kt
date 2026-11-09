@@ -245,7 +245,7 @@ class EmbyBackend(override val config: ServerConfig) : MediaBackend {
     /** 单集详情：补上所属剧集、播出日期、剧照。 */
     override suspend fun episode(itemId: String): Episode {
         val fields = "Overview,RunTimeTicks,UserData,ImageTags,BackdropImageTags,ProductionYear," +
-            "PremiereDate,IndexNumber,ParentIndexNumber,SeriesId,SeriesName,AirTime"
+            "PremiereDate,IndexNumber,ParentIndexNumber,SeriesId,SeasonId,SeriesName,AirTime"
         val text = Http.getText(url("/Users/$userId/Items/$itemId?Fields=$fields"), tokenHeaders())
         val o = J.obj(text) ?: error("无法获取单集详情")
         val ud = o.obj("UserData")
@@ -263,6 +263,7 @@ class EmbyBackend(override val config: ServerConfig) : MediaBackend {
             progressMs = ticksToMs(ud?.long("PlaybackPositionTicks") ?: 0L),
             airDate = o.str("PremiereDate")?.take(10),
             seriesId = o.str("SeriesId"),
+            seasonId = o.str("SeasonId"),
             seriesName = o.str("SeriesName"),
         )
     }
@@ -305,6 +306,7 @@ class EmbyBackend(override val config: ServerConfig) : MediaBackend {
                 progressMs = ticksToMs(ud?.long("PlaybackPositionTicks") ?: 0L),
                 airDate = o.str("PremiereDate")?.take(10),
                 seriesId = seriesId,
+                seasonId = seasonId,
             )
         }
     }

@@ -44,9 +44,11 @@ fun ServerAvatar(
     config: ServerConfig,
     size: Dp = 34.dp,
     selected: Boolean = false,
+    /** 圆角方块（默认）还是正圆——首页胶囊里用正圆，列表里用圆角方块。 */
+    circle: Boolean = false,
 ) {
     val p = rainPalette
-    val shape = RoundedCornerShape(size * 0.3f)
+    val shape = if (circle) CircleShape else RoundedCornerShape(size * 0.3f)
     val serverAvatar = config.userAvatarUrl
     // 服务器没设头像时接口返回 404，失败一次就退回本地图标，不再重试
     var serverFailed by remember(serverAvatar) { mutableStateOf(false) }

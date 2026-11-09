@@ -64,6 +64,13 @@ fun SettingsScreen(
     var douban by remember { mutableStateOf(prefs.doubanRating) }
     var tmdbKey by remember { mutableStateOf(prefs.tmdbApiKey) }
     val capabilities = remember { PlayerCapabilities.detect(Graph.app) }
+    // 运行时读取真实版本号，避免「关于」里的版本号和实际包对不上
+    val appVersion = remember {
+        runCatching {
+            @Suppress("DEPRECATION")
+            Graph.app.packageManager.getPackageInfo(Graph.app.packageName, 0).versionName
+        }.getOrNull() ?: ""
+    }
 
     Column(
         Modifier
@@ -384,7 +391,7 @@ fun SettingsScreen(
 
         Section("关于") {
             Text(
-                "RainPlayer 1.0.0\n" +
+                "RainPlayer $appVersion\n" +
                     "基于 Media3 / ExoPlayer + FFmpeg 解码扩展\n" +
                     "支持 Emby / Jellyfin / 飞牛影视\n" +
                     "最低支持 Android 5.0（API 21）",
@@ -394,6 +401,8 @@ fun SettingsScreen(
             )
         }
         Spacer(Modifier.height(24.dp))
+        // 悬浮导航栏占位
+        Spacer(Modifier.height(86.dp))
     }
 }
 

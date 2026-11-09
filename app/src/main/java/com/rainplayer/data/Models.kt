@@ -253,6 +253,8 @@ data class Episode(
     val progressMs: Long = 0L,
     val airDate: String? = null,
     val seriesId: String? = null,
+    /** 所属季的 id，用于从单集跳到同季其它集。 */
+    val seasonId: String? = null,
     val seriesName: String? = null,
     /** 单集自己的背景图，详情页大图用。 */
     val backdropUrl: String? = null,

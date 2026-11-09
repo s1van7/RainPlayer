@@ -67,6 +67,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.util.UnstableApi
+import kotlinx.coroutines.withTimeoutOrNull
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.CaptionStyleCompat
 import androidx.media3.ui.PlayerView
@@ -152,10 +153,8 @@ fun PlayerScreen(
             Modifier
                 .fillMaxSize()
                 .pointerInput(ui.panel) {
-                    // 手指抖动容差。之前用的是固定 26px（在 3x 屏上只有 8dp 左右），
-                    // 稍微动一下就判成「拖动」，长按几乎按不出来，所以改成 dp。
                     val slop = 32.dp.toPx()
-                    val holdMs = 420L
+                    val holdMs = 380L
                     awaitEachGesture {
                         // 只处理没人消费的触摸：控制条上的按钮点击不会被误判成「点击画面」
                         val down = awaitFirstDown(requireUnconsumed = true)
@@ -163,41 +162,62 @@ fun PlayerScreen(
                         val height = size.height.toFloat().coerceAtLeast(1f)
                         // 左右各占半屏：亮度/音量与长按快进快退用的是同一块区域
                         val leftSide = down.position.x < width / 2f
-                        var lastY = down.position.y
-                        var dragged = false
-                        var boosting = false
-                        val downTime = System.currentTimeMillis()
                         var pointerId = down.id
+                        var lastY = down.position.y
 
-                        while (true) {
-                            val event = awaitPointerEvent()
-                            val change = event.changes.firstOrNull { it.id == pointerId } ?: break
-                            if (!change.pressed) {
-                                if (boosting) onSpeedBoost(false, !leftSide)
-                                else if (!dragged && System.currentTimeMillis() - downTime < holdMs + 150) {
-                                    onToggleControls()
+                        // 阶段一：等长按超时 / 提前滑动 / 抬手。
+                        //
+                        // 这里必须用超时而不是在事件循环里比对时间戳：手指完全静止时
+                        // 不会有新的 pointer event，循环压根不会被唤醒，长按就永远触发不了
+                        // ——之前「必须长按后再滑一下才生效」就是这个原因。
+                        val phase = withTimeoutOrNull(holdMs) {
+                            while (true) {
+                                val event = awaitPointerEvent()
+                                val change = event.changes.firstOrNull { it.id == pointerId }
+                                    ?: return@withTimeoutOrNull 2
+                                if (!change.pressed) return@withTimeoutOrNull 2
+                                if (abs(change.position.y - down.position.y) > slop ||
+                                    abs(change.position.x - down.position.x) > slop
+                                ) {
+                                    return@withTimeoutOrNull 1
                                 }
-                                break
+                                pointerId = change.id
                             }
-                            val totalDy = change.position.y - down.position.y
-                            val totalDx = change.position.x - down.position.x
-                            if (!dragged && (abs(totalDy) > slop || abs(totalDx) > slop)) dragged = true
+                            @Suppress("UNREACHABLE_CODE")
+                            1
+                        }
 
-                            if (boosting) {
-                                // 已经在倍速里：手指怎么动都不再切换模式，避免滑一下就被打断
-                                change.consume()
-                            } else if (dragged) {
-                                // 上滑为增大：屏幕坐标 y 向下为正，取负
-                                val delta = -(change.position.y - lastY) / height * 1.6f
-                                if (leftSide) onBrightnessDelta(delta) else onVolumeDelta(delta)
-                                change.consume()
-                            } else if (System.currentTimeMillis() - downTime > holdMs) {
-                                boosting = true
+                        when (phase) {
+                            // 超时 → 长按：直接进倍速，不需要再滑动
+                            null -> {
                                 onSpeedBoost(true, !leftSide)
-                                change.consume()
+                                while (true) {
+                                    val event = awaitPointerEvent()
+                                    val change = event.changes.firstOrNull { it.id == pointerId } ?: break
+                                    if (!change.pressed) break
+                                    change.consume()
+                                    pointerId = change.id
+                                }
+                                onSpeedBoost(false, !leftSide)
                             }
-                            lastY = change.position.y
-                            pointerId = change.id
+
+                            // 先滑了 → 调亮度 / 音量
+                            1 -> {
+                                while (true) {
+                                    val event = awaitPointerEvent()
+                                    val change = event.changes.firstOrNull { it.id == pointerId } ?: break
+                                    if (!change.pressed) break
+                                    // 上滑为增大：屏幕坐标 y 向下为正，取负
+                                    val delta = -(change.position.y - lastY) / height * 1.6f
+                                    if (leftSide) onBrightnessDelta(delta) else onVolumeDelta(delta)
+                                    lastY = change.position.y
+                                    change.consume()
+                                    pointerId = change.id
+                                }
+                            }
+
+                            // 抬手且没动 → 切换控制条
+                            else -> onToggleControls()
                         }
                     }
                 }
