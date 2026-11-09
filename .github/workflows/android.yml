@@ -30,9 +30,11 @@ jobs:
           path: |
             ~/.gradle/caches
             ~/.gradle/wrapper
-          key: gradle-${{ runner.os }}-${{ hashFiles('**/*.gradle*', '**&#8203;/gradle-wrapper.properties', 'gradle/libs.versions.toml') }}
+          key: gradle-${{ runner.os }}-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties', 'gradle/libs.versions.toml') }}
           restore-keys: gradle-${{ runner.os }}-
 
+      # 构建逻辑都在 scripts/ci-build.sh 里：复用 runner 预装的 SDK，
+      # 避开 setup-android 执行 `sdkmanager tools` 在新版 cmdline-tools 上失败的问题。
       - name: Build release APK
         run: bash scripts/ci-build.sh
 
