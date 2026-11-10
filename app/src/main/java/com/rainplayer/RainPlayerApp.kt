@@ -6,6 +6,7 @@ import coil.ImageLoaderFactory
 import coil.disk.DiskCache
 import coil.memory.MemoryCache
 import coil.request.CachePolicy
+import com.rainplayer.core.CrashReporter
 import com.rainplayer.core.Http
 import com.rainplayer.core.Prefs
 import com.rainplayer.data.BackendFactory
@@ -112,6 +113,8 @@ class RainPlayerApp : Application(), ImageLoaderFactory {
 
     override fun onCreate() {
         super.onCreate()
+        // 最先装崩溃捕获：后面任何初始化出问题都能留下日志
+        CrashReporter.install(this)
         Graph.init(this)
         // 预加载活动服务器的鉴权头，保证图片能直接加载
         Graph.backend()

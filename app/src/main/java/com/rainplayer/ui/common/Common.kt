@@ -396,11 +396,13 @@ fun SectionRow(
 }
 
 @Composable
-fun imageRequest(url: String?): ImageRequest {
+fun imageRequest(url: String?, allowHardware: Boolean = true): ImageRequest {
     val context = LocalContext.current
     return ImageRequest.Builder(context)
         .data(url)
         .crossfade(true)
+        // 需要读像素（取主色）时必须关掉硬件位图，否则 getPixel 会直接抛异常
+        .allowHardware(allowHardware)
         .build()
 }
 

@@ -29,8 +29,8 @@ android {
         applicationId = "com.rainplayer"
         minSdk = 21
         targetSdk = 34
-        versionCode = 9
-        versionName = "1.2.5"
+        versionCode = 10
+        versionName = "1.2.6"
 
         vectorDrawables.useSupportLibrary = true
         resourceConfigurations += listOf("zh", "en")

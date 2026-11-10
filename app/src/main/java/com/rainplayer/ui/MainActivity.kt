@@ -9,10 +9,16 @@ import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import com.rainplayer.core.CrashReporter
+import com.rainplayer.ui.common.CrashReportDialog
 import com.rainplayer.ui.phone.PhoneRoot
 import com.rainplayer.ui.theme.RainPlayerTheme
 import com.rainplayer.ui.theme.SystemBarsState
@@ -40,6 +46,13 @@ class MainActivity : ComponentActivity() {
 
                 val session = remember { AppSession() }
                 PhoneRoot(session)
+
+                // 上次崩溃留下的日志：弹窗问用户要不要反馈
+                var crash by remember { mutableStateOf<String?>(null) }
+                LaunchedEffect(Unit) { crash = CrashReporter.pending(this@MainActivity) }
+                crash?.let { report ->
+                    CrashReportDialog(report) { crash = null }
+                }
             }
         }
     }

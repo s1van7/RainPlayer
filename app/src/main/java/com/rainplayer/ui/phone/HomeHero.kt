@@ -137,7 +137,7 @@ fun DailyHero(
                 ) {
                     AsyncImage(
                         // 海报通常自带片名，和参考稿一样不再额外压标题
-                        model = imageRequest(card.posterUrl ?: card.backdropUrl),
+                        model = imageRequest(card.posterUrl ?: card.backdropUrl, allowHardware = false),
                         contentDescription = card.title,
                         contentScale = ContentScale.Crop,
                         modifier = Modifier.fillMaxWidth().height(imageHeight),
@@ -266,10 +266,13 @@ fun DailyHero(
  * 取图片主色：缩到 12×12 取平均，再把饱和度抬高一点，
  * 免得灰色画面染出一片脏灰。
  */
-private fun dominantColor(bitmap: Bitmap): Color? {
+private fun dominantColor(bitmap: Bitmap): Color? = runCatching {
+    // Config#HARDWARE 的位图不支持读像素，直接放弃染色（绝不在这里崩）
+    if (bitmap.config == Bitmap.Config.HARDWARE) return null
+    if (bitmap.isRecycled) return null
+
     val size = 12
-    val small = runCatching { Bitmap.createScaledBitmap(bitmap, size, size, false) }.getOrNull()
-        ?: return null
+    val small = Bitmap.createScaledBitmap(bitmap, size, size, false)
     var r = 0L
     var g = 0L
     var b = 0L
@@ -286,14 +289,15 @@ private fun dominantColor(bitmap: Bitmap): Color? {
     }
     if (small !== bitmap) small.recycle()
     if (n == 0) return null
+
     val hsv = FloatArray(3)
     android.graphics.Color.RGBToHSV(
         (r / n).toInt(), (g / n).toInt(), (b / n).toInt(), hsv,
     )
     hsv[1] = (hsv[1] * 1.15f).coerceAtMost(1f)
     hsv[2] = hsv[2].coerceIn(0.35f, 0.9f)
-    return Color(android.graphics.Color.HSVToColor(hsv))
-}
+    Color(android.graphics.Color.HSVToColor(hsv))
+}.getOrNull()
 
 /** 大图高度：屏高的 52%，手机上大致 320~460dp。 */
 @Composable
