@@ -59,8 +59,10 @@
                         <TextBlock x:Name="PositionText" Grid.Column="0" Text="00:00" FontSize="12"
                                    Foreground="#D5DBE6" VerticalAlignment="Center" Width="56" />
                         <Slider x:Name="SeekSlider" Grid.Column="1" Style="{StaticResource SeekSlider}"
-                                Minimum="0" Maximum="1" Margin="6,0,6,0"
+                                Minimum="0" Maximum="1" Margin="6,0,6,0" IsMoveToPointEnabled="True"
                                 Thumb.DragStarted="OnSeekStart" Thumb.DragCompleted="OnSeekEnd"
+                                PreviewMouseLeftButtonDown="OnSeekMouseDown"
+                                PreviewMouseLeftButtonUp="OnSeekMouseUp"
                                 ValueChanged="OnSeekValueChanged" />
                         <TextBlock x:Name="DurationText" Grid.Column="2" Text="00:00" FontSize="12"
                                    Foreground="#8A93A5" VerticalAlignment="Center" Width="56"

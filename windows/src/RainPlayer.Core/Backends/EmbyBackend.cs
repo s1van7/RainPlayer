@@ -874,6 +874,15 @@ public sealed class EmbyBackend : IMediaBackend
             ? Url($"/Items/{id}/Images/Primary?maxWidth=500&quality=85&tag={tag}&api_key={_token}")
             : null;
         var hasBackdrop = element.Arr("BackdropImageTags").Count > 0;
+        // 首页大图铺满整屏，500px 的封面放大就糊了，单独给一个高清地址
+        var big = tag != null
+            ? Url($"/Items/{id}/Images/Primary?maxWidth=1080&quality=92&tag={tag}&api_key={_token}")
+            : null;
+        // 片名艺术字：Emby 里叫 Logo，只有部分条目有
+        var logoT = element.Obj("ImageTags").Str("Logo");
+        var logo = logoT != null
+            ? Url($"/Items/{id}/Images/Logo?maxWidth=900&quality=92&tag={logoT}&api_key={_token}")
+            : null;
 
         return new MediaCard
         {
@@ -884,6 +893,8 @@ public sealed class EmbyBackend : IMediaBackend
             BackdropUrl = hasBackdrop
                 ? Url($"/Items/{id}/Images/Backdrop/0?maxWidth=1400&quality=80&api_key={_token}")
                 : poster,
+            LogoUrl = logo,
+            BigUrl = big,
             Type = type,
             Progress = (ud.Dbl("PlayedPercentage") ?? 0) / 100.0,
             Played = ud.Bool("Played") ?? false,

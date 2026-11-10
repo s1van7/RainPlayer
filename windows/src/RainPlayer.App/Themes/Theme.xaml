@@ -25,7 +25,7 @@
     <!-- 评分金色，不随主题变化 -->
     <SolidColorBrush x:Key="GoldBrush" Color="#F5C451" />
 
-    <FontFamily x:Key="AppFont">Microsoft YaHei UI, Segoe UI, sans-serif</FontFamily>
+    <FontFamily x:Key="AppFont">Microsoft YaHei UI, Microsoft YaHei, Segoe UI, SimSun</FontFamily>
 
     <!-- ============================ 基础文本 ============================ -->
     <Style TargetType="TextBlock" x:Key="BaseText">

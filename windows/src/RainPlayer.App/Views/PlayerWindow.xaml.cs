@@ -343,16 +343,38 @@ public partial class PlayerWindow : Window
 
     private void SeekRelative(long deltaMs)
     {
-        _player?.SeekRelative(deltaMs);
+        var player = _player;
+        if (player != null) Task.Run(() => { try { player.SeekRelative(deltaMs); } catch { } });
         ShowControls();
     }
 
     private void OnSeekStart(object sender, DragStartedEventArgs e) => _seeking = true;
 
-    private void OnSeekEnd(object sender, DragCompletedEventArgs e)
+    private void OnSeekEnd(object sender, DragCompletedEventArgs e) => CommitSeek();
+
+    // 直接点进度条（不是拖滑块）时，WPF 只会改 Value 不会触发 DragStarted/Completed。
+    // 以前没有这两个处理，点了没反应、又被 250ms 的刷新循环把值拽回去，看起来就是「拖不动」。
+    private void OnSeekMouseDown(object sender, MouseButtonEventArgs e) => _seeking = true;
+
+    private void OnSeekMouseUp(object sender, MouseButtonEventArgs e) => CommitSeek();
+
+    /// <summary>
+    /// 提交跳转。mpv 的 seek 是同步命令，在 UI 线程上调用会一直卡到解码器重新出帧，
+    /// 网络源上这一下就是好几秒的「假死」——所以丢到线程池里执行。
+    /// </summary>
+    private void CommitSeek()
     {
         _seeking = false;
-        _player?.SeekTo((long)SeekSlider.Value);
+        var target = (long)SeekSlider.Value;
+        PositionText.Text = FormatTime(target);
+
+        var player = _player;
+        if (player == null) return;
+        Task.Run(() =>
+        {
+            try { player.SeekTo(target); }
+            catch { /* 播放器已经关掉了，忽略 */ }
+        });
         ShowControls();
     }
 

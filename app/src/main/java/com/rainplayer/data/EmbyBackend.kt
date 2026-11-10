@@ -763,6 +763,15 @@ class EmbyBackend(override val config: ServerConfig) : MediaBackend {
         val poster = if (tag != null) {
             url("/Items/$id/Images/Primary?maxWidth=500&quality=85&tag=$tag&api_key=$token")
         } else null
+        // 首页大图要铺满整屏，500px 的封面放大后糊成一片，单独给一个高清地址
+        val big = if (tag != null) {
+            url("/Items/$id/Images/Primary?maxWidth=1080&quality=92&tag=$tag&api_key=$token")
+        } else null
+        // 片名艺术字：Emby 里叫 Logo，只有部分条目有
+        val logoT = o.obj("ImageTags")?.str("Logo")
+        val logo = if (logoT != null) {
+            url("/Items/$id/Images/Logo?maxWidth=900&quality=92&tag=$logoT&api_key=$token")
+        } else null
         val backdropTag = o.arr("BackdropImageTags")?.isNotEmpty() == true
         return MediaCard(
             id = id,
@@ -772,6 +781,8 @@ class EmbyBackend(override val config: ServerConfig) : MediaBackend {
             backdropUrl = if (backdropTag) {
                 url("/Items/$id/Images/Backdrop/0?maxWidth=1400&quality=80&api_key=$token")
             } else poster,
+            logoUrl = logo,
+            bigUrl = big,
             type = type,
             progress = ((ud?.dbl("PlayedPercentage") ?: 0.0) / 100.0).toFloat(),
             played = ud?.bool("Played") ?: false,

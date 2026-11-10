@@ -248,6 +248,13 @@ public sealed class MediaCard
     public string? Subtitle { get; set; }
     public string? PosterUrl { get; set; }
     public string? BackdropUrl { get; set; }
+
+    /// <summary>片名艺术字（Emby 的 Logo 图），有就画在简介上方。</summary>
+    public string? LogoUrl { get; set; }
+
+    /// <summary>首页大图用的高清地址，比列表封面大得多。</summary>
+    public string? BigUrl { get; set; }
+
     public MediaType Type { get; set; } = MediaType.Unknown;
     public double Progress { get; set; }
     public bool Played { get; set; }

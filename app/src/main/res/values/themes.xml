@@ -1,10 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
 
+    <!-- 沉浸式：系统栏一律透明，内容铺到屏幕最上沿（含刘海区域）。
+         注意 statusBarColor 千万别写成实色——那会在状态栏位置画一条底色，
+         首页大图被顶下去，看起来就是「状态栏下面一条白条」。 -->
     <style name="Theme.RainPlayer" parent="@android:style/Theme.Material.NoActionBar">
         <item name="android:windowBackground">@color/rainplayer_bg</item>
-        <item name="android:statusBarColor">@color/rainplayer_bg</item>
-        <item name="android:navigationBarColor">@color/rainplayer_bg</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowDrawsSystemBarBackgrounds">true</item>
+        <item name="android:windowLayoutInDisplayCutoutMode">shortEdges</item>
+        <item name="android:enforceStatusBarContrast">false</item>
+        <item name="android:enforceNavigationBarContrast">false</item>
         <item name="android:colorAccent">@color/rainplayer_accent</item>
     </style>
 

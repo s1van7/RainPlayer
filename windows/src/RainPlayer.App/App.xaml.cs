@@ -1,3 +1,4 @@
+using System.IO;
 using System.Windows;
 using System.Windows.Threading;
 using RainPlayer.App.Views;
@@ -62,7 +63,19 @@ public partial class App : Application
         Settings.Save();
         Backend = CreateBackend(config);
 
-        var main = new MainWindow();
+        MainWindow main;
+        try
+        {
+            main = new MainWindow();
+        }
+        catch (Exception ex)
+        {
+            // 主界面加载失败（模板/资源写错）时别把登录页也一起关掉，
+            // 弹个明确的错误并把日志落到 %LOCALAPPDATA%\RainPlayer\error.log
+            ShowFatal(ex);
+            return;
+        }
+
         MainWindow = main;
         main.Show();
 
@@ -116,11 +129,30 @@ public partial class App : Application
         e.Handled = true;
     }
 
+    /// <summary>出错日志位置：%LOCALAPPDATA%\RainPlayer\error.log</summary>
+    public static string ErrorLogPath => Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        "RainPlayer", "error.log");
+
     private static void ShowFatal(Exception ex)
     {
+        // 先落盘再弹窗：用户截个图或者直接把日志发过来就能定位
         try
         {
-            MessageBox.Show(ex.Message, "RainPlayer 出错了", MessageBoxButton.OK, MessageBoxImage.Error);
+            var path = ErrorLogPath;
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            File.AppendAllText(path, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] {ex}\r\n\r\n");
+        }
+        catch
+        {
+            // 写日志失败不影响弹窗
+        }
+
+        try
+        {
+            MessageBox.Show(
+                $"{ex.GetType().Name}：{ex.Message}\n\n完整信息已写入：\n{ErrorLogPath}",
+                "RainPlayer 出错了", MessageBoxButton.OK, MessageBoxImage.Error);
         }
         catch
         {

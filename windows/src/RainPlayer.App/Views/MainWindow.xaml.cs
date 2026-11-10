@@ -1282,60 +1282,109 @@ public partial class MainWindow : Window
         return mixed.Skip(start).Concat(mixed.Take(start)).Take(10).ToList();
     }
 
+    /// <summary>
+    /// 首页顶部大图（参考 Hills Lite）：整幅宽的高清剧照 + 底部渐变，
+    /// 片名艺术字、评分、简介、播放按钮压在图上，每 7 秒换一部。
+    /// 用负边距抵消 ScrollViewer 的内边距，图片能顶到窗口左右边缘。
+    /// </summary>
     private UIElement BuildDailyBanner(List<MediaCard> items)
     {
-        var host = new Grid { Height = 260, Margin = new Thickness(0, 0, 0, 26) };
+        var host = new Grid { Height = 400, Margin = new Thickness(-26, -4, -26, 24) };
 
-        var border = new Border
-        {
-            CornerRadius = new CornerRadius(18),
-            ClipToBounds = true,
-            Background = (Brush)FindResource("CardBrush"),
-        };
-        host.Children.Add(border);
+        var clip = new Border { ClipToBounds = true, Background = (Brush)FindResource("CardBrush") };
+        host.Children.Add(clip);
 
         var image = new Image { Stretch = Stretch.UniformToFill };
-        border.Child = image;
+        clip.Child = image;
 
-        var overlay = new Border
+        // 底部渐变压暗，文字压上去才读得清
+        host.Children.Add(new Border
         {
             Background = new LinearGradientBrush(
-                Color.FromArgb(0, 0, 0, 0),
-                Color.FromArgb(235, 0, 0, 0),
-                new Point(0.5, 0),
-                new Point(0.5, 1)),
-        };
-        host.Children.Add(overlay);
+                Color.FromArgb(0, 0, 0, 0), Color.FromArgb(240, 0, 0, 0),
+                new Point(0.5, 0.15), new Point(0.5, 1)),
+        });
+        // 左侧再补一层，艺术字在浅色画面上也不会糊
+        host.Children.Add(new Border
+        {
+            Background = new LinearGradientBrush(
+                Color.FromArgb(150, 0, 0, 0), Color.FromArgb(0, 0, 0, 0),
+                new Point(0, 0.5), new Point(0.65, 0.5)),
+        });
 
-        var textStack = new StackPanel
+        var stack = new StackPanel
         {
             VerticalAlignment = VerticalAlignment.Bottom,
-            Margin = new Thickness(26, 0, 26, 22),
+            HorizontalAlignment = HorizontalAlignment.Left,
+            Margin = new Thickness(40, 0, 40, 34),
+            MaxWidth = 720,
         };
-        var titleText = new TextBlock { FontSize = 26, FontWeight = FontWeights.Bold, Foreground = Brushes.White };
+
+        var logo = new Image
+        {
+            MaxHeight = 92,
+            HorizontalAlignment = HorizontalAlignment.Left,
+            Stretch = Stretch.Uniform,
+            Margin = new Thickness(0, 0, 0, 14),
+            Visibility = Visibility.Collapsed,
+        };
+        var titleText = new TextBlock
+        {
+            FontSize = 38,
+            FontWeight = FontWeights.Bold,
+            Foreground = Brushes.White,
+            Margin = new Thickness(0, 0, 0, 12),
+        };
         var metaText = new TextBlock
         {
             FontSize = 12.5,
-            Foreground = new SolidColorBrush(Color.FromArgb(220, 255, 255, 255)),
-            Margin = new Thickness(0, 6, 0, 0),
+            Foreground = new SolidColorBrush(Color.FromArgb(225, 255, 255, 255)),
+            Margin = new Thickness(0, 0, 0, 10),
         };
-        textStack.Children.Add(new TextBlock
+        var overviewText = new TextBlock
         {
-            Text = "今日推荐 · 每天换一批",
-            FontSize = 12,
-            Foreground = (Brush)FindResource("AccentBrush"),
-            Margin = new Thickness(0, 0, 0, 6),
-        });
-        textStack.Children.Add(titleText);
-        textStack.Children.Add(metaText);
-        host.Children.Add(textStack);
+            FontSize = 13,
+            LineHeight = 20,
+            MaxHeight = 40,
+            TextWrapping = TextWrapping.Wrap,
+            TextTrimming = TextTrimming.CharacterEllipsis,
+            Foreground = new SolidColorBrush(Color.FromArgb(200, 235, 240, 250)),
+            Margin = new Thickness(0, 0, 0, 16),
+            Visibility = Visibility.Collapsed,
+        };
+        var buttons = new StackPanel { Orientation = Orientation.Horizontal };
+
+        var playButton = new Button
+        {
+            Content = "▶  播放",
+            Style = (Style)FindResource("PrimaryButton"),
+            Padding = new Thickness(26, 9, 26, 9),
+            FontSize = 13.5,
+            Margin = new Thickness(0, 0, 10, 0),
+        };
+        var detailButton = new Button
+        {
+            Content = "详情",
+            Style = (Style)FindResource("GhostButton"),
+            Padding = new Thickness(22, 9, 22, 9),
+            FontSize = 13.5,
+        };
+        buttons.Children.Add(playButton);
+        buttons.Children.Add(detailButton);
+
+        stack.Children.Add(logo);
+        stack.Children.Add(titleText);
+        stack.Children.Add(metaText);
+        stack.Children.Add(overviewText);
+        stack.Children.Add(buttons);
+        host.Children.Add(stack);
 
         var dots = new StackPanel
         {
             Orientation = Orientation.Horizontal,
             HorizontalAlignment = HorizontalAlignment.Right,
             VerticalAlignment = VerticalAlignment.Bottom,
-            Margin = new Thickness(0, 0, 26, 26),
+            Margin = new Thickness(0, 0, 40, 40),
         };
         host.Children.Add(dots);
 
@@ -1344,26 +1393,72 @@ public partial class MainWindow : Window
         void Render()
         {
             var card = items[index];
-            LoadImageInto(image, card.BackdropUrl ?? card.PosterUrl);
-            titleText.Text = card.Title;
+            image.Source = null;
+            LoadImageInto(image, card.BigUrl ?? card.BackdropUrl ?? card.PosterUrl);
+
+            if (!string.IsNullOrEmpty(card.LogoUrl))
+            {
+                logo.Source = null;
+                logo.Visibility = Visibility.Visible;
+                titleText.Visibility = Visibility.Collapsed;
+                LoadImageInto(logo, card.LogoUrl);
+            }
+            else
+            {
+                logo.Visibility = Visibility.Collapsed;
+                titleText.Visibility = Visibility.Visible;
+                titleText.Text = card.Title;
+            }
+
             var meta = new List<string>();
             if (card.Rating is > 0) meta.Add($"★ {card.Rating:0.0}");
             if (card.Year != null) meta.Add(card.Year.ToString()!);
             if (!string.IsNullOrWhiteSpace(card.Subtitle)) meta.Add(card.Subtitle!);
-            metaText.Text = string.Join(" · ", meta);
+            metaText.Text = string.Join("  ·  ", meta);
+
+            // 简介要异步取（列表接口不带），拿到就填
+            overviewText.Visibility = Visibility.Collapsed;
+            var captured = card.Id;
+            _ = LoadOverviewAsync(captured, text =>
+            {
+                if (items[index].Id != captured) return;
+                overviewText.Text = text;
+                overviewText.Visibility = string.IsNullOrWhiteSpace(text)
+                    ? Visibility.Collapsed
+                    : Visibility.Visible;
+            });
+
+            playButton.Click -= OnPlayClick;
+            playButton.Click += OnPlayClick;
+            detailButton.Click -= OnDetailClick;
+            detailButton.Click += OnDetailClick;
 
             dots.Children.Clear();
             for (var i = 0; i < items.Count; i++)
             {
                 dots.Children.Add(new Border
                 {
-                    Width = i == index ? 8 : 6,
-                    Height = i == index ? 8 : 6,
-                    CornerRadius = new CornerRadius(4),
+                    Width = i == index ? 9 : 6,
+                    Height = i == index ? 9 : 6,
+                    CornerRadius = new CornerRadius(5),
                     Margin = new Thickness(3, 0, 3, 0),
-                    Background = i == index ? (Brush)FindResource("AccentBrush") : new SolidColorBrush(Color.FromArgb(70, 255, 255, 255)),
+                    Background = i == index
+                        ? Brushes.White
+                        : new SolidColorBrush(Color.FromArgb(90, 255, 255, 255)),
                 });
             }
+        }
+
+        void OnPlayClick(object sender, RoutedEventArgs e)
+        {
+            var id = items[index].Id;
+            _ = StartPlaybackAsync(id);
+        }
+
+        void OnDetailClick(object sender, RoutedEventArgs e)
+        {
+            var card = items[index];
+            _ = ShowDetailAsync(card.Id, card.Title);
         }
 
         Render();
@@ -1377,10 +1472,31 @@ public partial class MainWindow : Window
         timer.Start();
         host.Unloaded += (_, _) => timer.Stop();
 
-        border.Cursor = Cursors.Hand;
-        border.MouseLeftButtonUp += async (_, _) => await ShowDetailAsync(items[index].Id, items[index].Title);
         return host;
     }
+
+    /// <summary>取简介（带缓存），拿到后回调到 UI 线程。</summary>
+    private async Task LoadOverviewAsync(string itemId, Action<string?> apply)
+    {
+        try
+        {
+            if (_overviewCache.TryGetValue(itemId, out var cached))
+            {
+                apply(cached);
+                return;
+            }
+            var detail = await _backend.GetDetailAsync(itemId);
+            var text = detail.Overview;
+            _overviewCache[itemId] = text;
+            apply(text);
+        }
+        catch
+        {
+            // 简介拿不到就不显示，不影响大图
+        }
+    }
+
+    private readonly Dictionary<string, string?> _overviewCache = new();
 
     // ============================================================ 单集详情
 

@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -126,7 +127,7 @@ fun DailyHero(
     Column(modifier.fillMaxWidth()) {
         HorizontalPager(
             state = pagerState,
-            modifier = Modifier.fillMaxWidth().height(imageHeight + 104.dp),
+            modifier = Modifier.fillMaxWidth().height(imageHeight + 178.dp),
         ) { page ->
             val card = items[page]
             val detail = details[card.id]
@@ -148,8 +149,11 @@ fun DailyHero(
             ) {
                 Box(Modifier.fillMaxWidth().height(imageHeight)) {
                     AsyncImage(
-                        // 用竖版封面（自带片名），和参考录屏一致
-                        model = imageRequest(card.posterUrl ?: card.backdropUrl, allowHardware = false),
+                        // 用竖版封面（自带片名），走高清地址，铺满整屏也不糊
+                        model = imageRequest(
+                            card.bigUrl ?: card.posterUrl ?: card.backdropUrl,
+                            allowHardware = false,
+                        ),
                         contentDescription = card.title,
                         contentScale = ContentScale.Crop,
                         modifier = Modifier.fillMaxSize(),
@@ -193,7 +197,36 @@ fun DailyHero(
                     )
                 }
 
-                Spacer(Modifier.height(10.dp))
+                // 片名艺术字（Emby 的 Logo 图）压在图片下沿上，位置和参考图一致：
+                // 大图 → 艺术字 → ★ 评分 · 年份 · 类型 → 简介 → 分页点
+                val logo = card.logoUrl
+                if (logo != null) {
+                    AsyncImage(
+                        model = imageRequest(logo),
+                        contentDescription = card.title,
+                        contentScale = ContentScale.Fit,
+                        modifier = Modifier
+                            .fillMaxWidth(0.74f)
+                            .height(68.dp)
+                            .align(Alignment.CenterHorizontally)
+                            .offset(y = (-14).dp),
+                    )
+                } else {
+                    // 没有艺术字就退回文字标题，别留一块空白
+                    Text(
+                        card.title,
+                        color = p.text,
+                        fontSize = 21.sp,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 28.dp)
+                            .offset(y = (-10).dp),
+                    )
+                }
 
                 // ★ 7.7   2026   动作/恐怖   PG-13（居中）
                 Row(

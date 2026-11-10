@@ -12,9 +12,9 @@
     <AssemblyName>RainPlayer</AssemblyName>
     <ApplicationIcon>Assets\app.ico</ApplicationIcon>
     <ApplicationManifest>app.manifest</ApplicationManifest>
-    <Version>1.3.0</Version>
-    <FileVersion>1.3.0.0</FileVersion>
-    <AssemblyVersion>1.3.0.0</AssemblyVersion>
+    <Version>1.4.0</Version>
+    <FileVersion>1.4.0.0</FileVersion>
+    <AssemblyVersion>1.4.0.0</AssemblyVersion>
     <Product>RainPlayer</Product>
     <Company>RainPlayer</Company>
     <Description>Emby / Jellyfin / 飞牛影视 桌面播放器</Description>
@@ -29,6 +29,7 @@
 
   <ItemGroup>
     <None Update="Assets\app.ico" CopyToOutputDirectory="PreserveNewest" />
+    <None Update="Assets\app-preview.png" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <!-- libmpv 由 scripts\fetch-libmpv.ps1 下载到 native\ 目录，构建时复制到输出 -->

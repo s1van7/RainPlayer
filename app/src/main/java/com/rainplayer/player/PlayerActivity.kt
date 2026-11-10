@@ -117,6 +117,9 @@ class PlayerActivity : ComponentActivity() {
     private var currentVolume = 0.5f
     private var rewindJob: kotlinx.coroutines.Job? = null
 
+    /** 亮度 / 音量提示条的自动隐藏任务：手一停就撤掉，不用等松手。 */
+    private var gestureHideJob: kotlinx.coroutines.Job? = null
+
     private val displayController by lazy { DisplayModeController(this) }
     private var rotationController: RotationController? = null
     private val prefs: Prefs get() = Graph.prefs
@@ -647,6 +650,16 @@ class PlayerActivity : ComponentActivity() {
                 "${(currentBrightness * 100).roundToInt()}%",
             )
         )
+        scheduleGestureHide()
+    }
+
+    /** 提示条 0.9 秒后自动消失；还在长按倍速时不撤，松手由 applySpeedBoost 收。 */
+    private fun scheduleGestureHide() {
+        gestureHideJob?.cancel()
+        gestureHideJob = lifecycleScope.launch {
+            delay(900)
+            if (!ui.boosted) ui = ui.copy(gesture = GestureState())
+        }
     }
 
     private fun applyVolumeDelta(delta: Float) {
@@ -662,6 +675,7 @@ class PlayerActivity : ComponentActivity() {
                 "${(currentVolume * 100).roundToInt()}%",
             )
         )
+        scheduleGestureHide()
     }
 
     /** 长按快进/快退：快进直接提播放速率，快退靠连续回跳（负速率在多数机型上不可靠）。 */
@@ -697,6 +711,7 @@ class PlayerActivity : ComponentActivity() {
             if (!ui.boosted) return
             rewindJob?.cancel()
             rewindJob = null
+            gestureHideJob?.cancel()
             exo.setPlaybackSpeed(normalSpeed)
             ui = ui.copy(boosted = false, speed = normalSpeed, gesture = GestureState())
         }

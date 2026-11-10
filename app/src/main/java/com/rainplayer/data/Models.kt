@@ -202,6 +202,10 @@ data class MediaCard(
     val subtitle: String? = null,
     val posterUrl: String? = null,
     val backdropUrl: String? = null,
+    /** 片名艺术字（Emby 的 Logo 图）。有就直接画在简介上方，比纯文字标题更像海报。 */
+    val logoUrl: String? = null,
+    /** 轮播用的高清图（比列表封面大得多），首页大图专用。 */
+    val bigUrl: String? = null,
     val type: MediaType = MediaType.UNKNOWN,
     val progress: Float = 0f,
     val played: Boolean = false,
