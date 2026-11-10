@@ -108,7 +108,7 @@ public sealed class EmbyBackend : IMediaBackend
         {
             var text = await Http.GetTextAsync(
                 Url($"/Users/{_userId}/Items/Resume?Limit=20&MediaTypes=Video" +
-                    "&Fields=PrimaryImageTag,ProductionYear,RunTimeTicks,UserData,BackdropImageTags,ChildCount,RecursiveItemCount" +
+                    "&Fields=PrimaryImageTag,ProductionYear,RunTimeTicks,UserData,BackdropImageTags,CommunityRating,ChildCount,RecursiveItemCount" +
                     "&ImageTypeLimit=1&EnableImageTypes=Primary,Backdrop"),
                 TokenHeaders(), ct).ConfigureAwait(false);
             using var doc = JsonExt.Parse(text);
@@ -138,7 +138,7 @@ public sealed class EmbyBackend : IMediaBackend
             {
                 var text = await Http.GetTextAsync(
                     Url($"/Users/{_userId}/Items/Latest?ParentId={library.Id}&Limit=18" +
-                        "&Fields=PrimaryImageTag,ProductionYear,RunTimeTicks,UserData,BackdropImageTags,ChildCount,RecursiveItemCount" +
+                        "&Fields=PrimaryImageTag,ProductionYear,RunTimeTicks,UserData,BackdropImageTags,CommunityRating,ChildCount,RecursiveItemCount" +
                         "&ImageTypeLimit=1&EnableImageTypes=Primary,Backdrop"),
                     TokenHeaders(), ct).ConfigureAwait(false);
                 using var doc = JsonExt.Parse(text);

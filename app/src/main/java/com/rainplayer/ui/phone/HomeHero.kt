@@ -25,10 +25,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -38,7 +38,6 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
@@ -60,16 +59,16 @@ import kotlinx.coroutines.launch
  * 首页顶部的每日推荐轮播。
  *
  * 版式对齐参考录屏：
- * 一张占屏宽约 78% 的大卡片，右边露出下一张的边；图片下面是
- * 「★ 8.6  2011  剧情  TV-14」一行、两行简介、居中的分页点。
- * 整页背景会跟着当前这张图的主色轻微染色。
+ * - 卡片按 **2:3 竖版海报**比例，宽约屏宽的 80%，右边露出下一张的边；
+ * - 图片四角圆角，顶部只压一层很淡的暗角（保证白色服务器胶囊在亮图上可读）；
+ * - 图片下方是「★ 6.6  2026  剧情 犯罪」一行、两行简介，最后是居中的分页点；
+ * - 整页背景跟着当前这张图的主色轻微染色。
  */
 @Composable
 fun DailyHero(
     items: List<MediaCard>,
     onOpen: (MediaCard) -> Unit,
     modifier: Modifier = Modifier,
-    imageHeight: Dp = heroImageHeight(),
     onTint: (Color?) -> Unit = {},
 ) {
     if (items.isEmpty()) return
@@ -77,8 +76,12 @@ fun DailyHero(
     val pagerState = rememberPagerState(pageCount = { items.size })
     val scope = rememberCoroutineScope()
     val screenWidth = LocalConfiguration.current.screenWidthDp.dp
-    // 右侧露出的宽度：约屏宽的 22%，太窄看不出「还有下一张」
-    val peek = (screenWidth * 0.22f).coerceIn(70.dp, 120.dp)
+
+    // 右侧露出的宽度：约屏宽 20%，太窄就看不出「后面还有」
+    val peek = (screenWidth * 0.20f).coerceIn(64.dp, 110.dp)
+    // 卡片宽 = 屏宽 - 露出部分；高按 2:3 走，和录屏里的竖版海报一致
+    val cardWidth = screenWidth - peek
+    val cardHeight = cardWidth * 1.5f
 
     // 详情 / 评分 / 主色都按条目缓存，来回滑不会重复请求
     val details = remember { mutableStateMapOf<String, MediaDetail>() }
@@ -123,7 +126,10 @@ fun DailyHero(
             state = pagerState,
             contentPadding = PaddingValues(end = peek),
             pageSpacing = 10.dp,
-            modifier = Modifier.fillMaxWidth().height(imageHeight + 112.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                // 图片 + 下方信息区（评分行 / 两行简介）
+                .height(cardHeight + 92.dp),
         ) { page ->
             val card = items[page]
             val detail = details[card.id]
@@ -131,8 +137,8 @@ fun DailyHero(
                 Box(
                     Modifier
                         .fillMaxWidth()
-                        .height(imageHeight)
-                        .clip(RoundedCornerShape(18.dp))
+                        .height(cardHeight)
+                        .clip(RoundedCornerShape(20.dp))
                         .background(p.surfaceHigh),
                 ) {
                     AsyncImage(
@@ -140,7 +146,7 @@ fun DailyHero(
                         model = imageRequest(card.posterUrl ?: card.backdropUrl, allowHardware = false),
                         contentDescription = card.title,
                         contentScale = ContentScale.Crop,
-                        modifier = Modifier.fillMaxWidth().height(imageHeight),
+                        modifier = Modifier.fillMaxWidth().height(cardHeight),
                         onSuccess = { state ->
                             val bmp = (state.result.drawable as? BitmapDrawable)?.bitmap
                             val c = bmp?.let { dominantColor(it) }
@@ -153,14 +159,14 @@ fun DailyHero(
                             }
                         },
                     )
-                    // 顶部暗角：保证左上角服务器胶囊在亮图上也能看清
+                    // 顶部只留一层很淡的暗角：白色胶囊压在亮色封面上时也能读清
                     Box(
                         Modifier
                             .fillMaxWidth()
-                            .height(130.dp)
+                            .height(110.dp)
                             .background(
                                 Brush.verticalGradient(
-                                    listOf(Color(0x73000000), Color.Transparent)
+                                    listOf(Color(0x3D000000), Color.Transparent)
                                 )
                             )
                     )
@@ -168,46 +174,36 @@ fun DailyHero(
 
                 Spacer(Modifier.height(10.dp))
 
-                // ★ 8.6   2011   剧情   TV-14
+                // ★ 6.6   2026   剧情 犯罪
                 Row(
-                    Modifier.padding(horizontal = 6.dp),
+                    Modifier.padding(horizontal = 4.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     (card.rating ?: detail?.rating)?.takeIf { it > 0 }?.let {
-                        Text("★", color = RainPlayerGold, fontSize = 12.sp)
-                        Spacer(Modifier.width(4.dp))
+                        Text("★", color = RainPlayerGold, fontSize = 11.sp)
+                        Spacer(Modifier.width(3.dp))
                         Text(
                             "%.1f".format(it),
                             color = RainPlayerGold,
                             fontSize = 12.sp,
                             fontWeight = FontWeight.SemiBold,
                         )
-                        Spacer(Modifier.width(10.dp))
+                        Spacer(Modifier.width(12.dp))
                     }
                     val meta = buildList {
                         (detail?.year ?: card.year)?.let { add("$it") }
-                        detail?.genres?.take(3)?.takeIf { it.isNotEmpty() }
+                        detail?.genres?.take(2)?.takeIf { it.isNotEmpty() }
                             ?.let { add(it.joinToString(" ")) }
                         if (isEmpty()) card.subtitle?.let { add(it) }
                     }.joinToString("  ")
                     if (meta.isNotBlank()) {
                         Text(
                             meta,
-                            color = RainPlayerText.copy(alpha = 0.85f),
+                            color = RainPlayerTextDim,
                             fontSize = 12.sp,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
-                    }
-                    detail?.officialRating?.takeIf { it.isNotBlank() }?.let { rating ->
-                        Spacer(Modifier.width(8.dp))
-                        Box(
-                            Modifier
-                                .border(1.dp, RainPlayerTextDim.copy(alpha = 0.6f), RoundedCornerShape(4.dp))
-                                .padding(horizontal = 5.dp, vertical = 1.dp)
-                        ) {
-                            Text(rating, color = RainPlayerTextDim, fontSize = 9.sp)
-                        }
                     }
                 }
 
@@ -219,7 +215,7 @@ fun DailyHero(
                         lineHeight = 18.sp,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.padding(start = 6.dp, end = 6.dp, top = 7.dp),
+                        modifier = Modifier.padding(start = 4.dp, end = 4.dp, top = 8.dp),
                     )
                 }
             }
@@ -228,7 +224,7 @@ fun DailyHero(
         // 分页点：居中，和参考稿一致
         if (items.size > 1) {
             Row(
-                Modifier.fillMaxWidth().padding(top = 8.dp),
+                Modifier.fillMaxWidth().padding(top = 10.dp),
                 horizontalArrangement = Arrangement.Center,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -237,11 +233,11 @@ fun DailyHero(
                     Box(
                         Modifier
                             .padding(horizontal = 2.dp)
-                            .size(if (selected) 7.dp else 5.dp)
+                            .size(if (selected) 6.dp else 5.dp)
                             .clip(CircleShape)
                             .background(
-                                if (selected) RainPlayerText.copy(alpha = 0.85f)
-                                else RainPlayerTextDim.copy(alpha = 0.35f)
+                                if (selected) RainPlayerText.copy(alpha = 0.8f)
+                                else RainPlayerTextDim.copy(alpha = 0.3f)
                             )
                             .clickable { scope.launch { pagerState.animateScrollToPage(index) } }
                     )
@@ -298,10 +294,3 @@ private fun dominantColor(bitmap: Bitmap): Color? = runCatching {
     hsv[2] = hsv[2].coerceIn(0.35f, 0.9f)
     Color(android.graphics.Color.HSVToColor(hsv))
 }.getOrNull()
-
-/** 大图高度：屏高的 52%，手机上大致 320~460dp。 */
-@Composable
-fun heroImageHeight(): Dp {
-    val h = LocalConfiguration.current.screenHeightDp
-    return (h * 0.52f).dp.coerceIn(300.dp, 460.dp)
-}

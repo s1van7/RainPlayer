@@ -27,7 +27,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
@@ -398,9 +400,12 @@ private fun HomeScreen(
     // 有大图时标题栏浮在图上；否则让出 60dp 给标题栏，内容从它下面开始
     val showHero = ok != null && rows.isNotEmpty() && Graph.prefs.dailyRecommend && daily.isNotEmpty()
 
-    // 大图顶到状态栏里，图标要换成白色
-    DisposableEffect(showHero) {
-        com.rainplayer.ui.theme.SystemBarsState.overImage = showHero
+    // 状态栏高度：大图从状态栏下沿开始，四角圆角完整露出来（和参考录屏一致）
+    val statusTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+
+    // 状态栏区域铺的是页面底色（主色薄染），图标跟随主题明暗即可，不压在图上也就不用强制白色
+    DisposableEffect(Unit) {
+        com.rainplayer.ui.theme.SystemBarsState.overImage = false
         onDispose { com.rainplayer.ui.theme.SystemBarsState.overImage = false }
     }
 
@@ -428,9 +433,10 @@ private fun HomeScreen(
                 } else {
                     LazyColumn(
                         state = listState,
-                        modifier = if (showHero) Modifier else Modifier.statusBarsPadding(),
+                        modifier = Modifier.fillMaxSize(),
                         contentPadding = PaddingValues(
-                            top = if (showHero) 0.dp else 60.dp,
+                            // 大图从状态栏下沿 +6dp 开始；无大图时给标题栏让位
+                            top = if (showHero) statusTop + 6.dp else statusTop + 56.dp,
                             // 底部留白给悬浮导航栏让位，避免最后一行被盖住
                             bottom = 110.dp,
                         ),
@@ -453,6 +459,23 @@ private fun HomeScreen(
                 }
             }
         }
+
+        // 滚动后内容会从状态栏下面穿过，铺一层页面底色把它和状态栏图标隔开；
+        // 停在顶部时不铺，大图依然是完整的。
+        val scrolled = listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset > 6
+        val veil = if (scrolled) 0.97f else 0f
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(statusTop + 18.dp)
+                .background(
+                    Brush.verticalGradient(
+                        0f to p.bg.copy(alpha = veil),
+                        0.80f to p.bg.copy(alpha = veil),
+                        1f to p.bg.copy(alpha = 0f),
+                    )
+                )
+        )
 
         HomeHeader(
             session = session,
@@ -533,7 +556,7 @@ private fun HomeHeader(
         Modifier
             .fillMaxWidth()
             .statusBarsPadding()
-            .padding(start = 14.dp, end = 8.dp, top = 10.dp, bottom = 8.dp),
+            .padding(start = 14.dp, end = 8.dp, top = if (onImage) 14.dp else 10.dp, bottom = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box {

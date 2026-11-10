@@ -106,7 +106,7 @@ class EmbyBackend(override val config: ServerConfig) : MediaBackend {
             val text = Http.getText(
                 url(
                     "/Users/$userId/Items/Resume?Limit=20&MediaTypes=Video" +
-                        "&Fields=PrimaryImageTag,ProductionYear,RunTimeTicks,UserData,BackdropImageTags,ChildCount,RecursiveItemCount" +
+                        "&Fields=PrimaryImageTag,ProductionYear,RunTimeTicks,UserData,BackdropImageTags,CommunityRating,ChildCount,RecursiveItemCount" +
                         "&ImageTypeLimit=1&EnableImageTypes=Primary,Backdrop"
                 ),
                 tokenHeaders()
@@ -121,7 +121,7 @@ class EmbyBackend(override val config: ServerConfig) : MediaBackend {
                 val text = Http.getText(
                     url(
                         "/Users/$userId/Items/Latest?ParentId=${library.id}&Limit=18" +
-                            "&Fields=PrimaryImageTag,ProductionYear,RunTimeTicks,UserData,BackdropImageTags,ChildCount,RecursiveItemCount" +
+                            "&Fields=PrimaryImageTag,ProductionYear,RunTimeTicks,UserData,BackdropImageTags,CommunityRating,ChildCount,RecursiveItemCount" +
                             "&ImageTypeLimit=1&EnableImageTypes=Primary,Backdrop"
                     ),
                     tokenHeaders()

@@ -201,13 +201,12 @@ fun PosterCard(
                     Text("已看", color = RainPlayerTextDim, fontSize = 10.sp)
                 }
             }
-            // 剧集：右上角总集数。浅底 + 主题色字，和参考稿一致，颜色跟着主题走
+            // 剧集：右上角总集数，正圆角标，颜色跟着主题走
             val count = card.episodeCount ?: 0
             if (card.type == MediaType.SERIES && count > 0) {
-                BadgePill(
+                CountBadge(
                     modifier = Modifier.align(Alignment.TopEnd).padding(7.dp),
-                    text = "$count",
-                    textColor = RainPlayerAccent,
+                    count = count,
                 )
             }
             // 右下角评分
@@ -449,18 +448,35 @@ fun IconTextRow(text: String, modifier: Modifier = Modifier) {
 
 /** 封面上的小角标：浅底 + 主题色字，比纯黑底更贴合浅色主题。 */
 @Composable
-private fun BadgePill(
+/**
+ * 集数角标：正圆。
+ *
+ * 白色（深色主题下为深色面板）底 + 主题色描边 + 主题色数字，
+ * 三位数自动缩字号，圆本身不变形。
+ */
+private fun CountBadge(
     modifier: Modifier = Modifier,
-    text: String,
-    textColor: Color,
+    count: Int,
 ) {
+    val d = 26.dp
     Box(
         modifier
-            .clip(RoundedCornerShape(6.dp))
-            .background(RainPlayerSurface.copy(alpha = 0.92f))
-            .border(1.dp, textColor.copy(alpha = 0.28f), RoundedCornerShape(6.dp))
-            .padding(horizontal = 6.dp, vertical = 2.dp)
+            .size(d)
+            .clip(CircleShape)
+            .background(RainPlayerSurface.copy(alpha = 0.94f))
+            .border(1.dp, RainPlayerAccent.copy(alpha = 0.32f), CircleShape),
+        contentAlignment = Alignment.Center,
     ) {
-        Text(text, color = textColor, fontSize = 9.5.sp, fontWeight = FontWeight.SemiBold)
+        Text(
+            "$count",
+            color = RainPlayerAccent,
+            fontSize = when {
+                count >= 1000 -> 8.5.sp
+                count >= 100 -> 9.5.sp
+                else -> 10.5.sp
+            },
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+        )
     }
 }

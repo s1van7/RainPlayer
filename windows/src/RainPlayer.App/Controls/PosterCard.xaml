@@ -35,13 +35,14 @@
                     <TextBlock Text="已看完" FontSize="10.5" Foreground="{StaticResource SubTextBrush}" />
                 </Border>
 
-                <!-- 剧集总集数（右上角） -->
-                <Border x:Name="EpisodeBadge" Background="{StaticResource SurfaceBrush}" CornerRadius="6" Padding="7,3"
+                <!-- 剧集总集数（右上角，正圆） -->
+                <Border x:Name="EpisodeBadge" Background="{StaticResource SurfaceBrush}" CornerRadius="13"
+                        Width="26" Height="26"
                         HorizontalAlignment="Right" VerticalAlignment="Top" Margin="8"
                         BorderBrush="{StaticResource AccentBrush}" BorderThickness="1"
                         Visibility="Collapsed">
                     <TextBlock x:Name="EpisodeBadgeText" FontSize="10.5" Foreground="{StaticResource AccentBrush}"
-                               FontWeight="SemiBold" />
+                               FontWeight="SemiBold" HorizontalAlignment="Center" VerticalAlignment="Center" />
                 </Border>
 
                 <!-- 评分（右下角） -->
