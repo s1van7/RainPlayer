@@ -32,7 +32,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
@@ -144,10 +147,29 @@ fun DailyHero(
                     }
                     .clickable { onOpen(card) },
             ) {
-                Box(Modifier.fillMaxWidth().height(imageHeight)) {
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .height(imageHeight)
+                        // 需要离屏图层，底部才能用 DstIn 把图片本身擦成透明
+                        .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
+                        // 底部把图片擦成透明，露出的就是整页主色底，
+                        // 两边同一个色，不会再出现一条浅色的分界线
+                        .drawWithContent {
+                            drawContent()
+                            drawRect(
+                                brush = Brush.verticalGradient(
+                                    0f to Color.Black,
+                                    0.62f to Color.Black,
+                                    1f to Color.Transparent,
+                                ),
+                                blendMode = BlendMode.DstIn,
+                            )
+                        },
+                ) {
                     AsyncImage(
-                        // 横向大图优先，没有就退回竖版海报
-                        model = imageRequest(card.backdropUrl ?: card.posterUrl, allowHardware = false),
+                        // 用竖版封面（自带片名），和参考图一致
+                        model = imageRequest(card.posterUrl ?: card.backdropUrl, allowHardware = false),
                         contentDescription = card.title,
                         contentScale = ContentScale.Crop,
                         modifier = Modifier.fillMaxSize(),
@@ -171,20 +193,6 @@ fun DailyHero(
                             .background(
                                 Brush.verticalGradient(
                                     listOf(Color(0x66000000), Color.Transparent)
-                                )
-                            )
-                    )
-                    // 底部渐隐到页面底色，和下面内容连成一片
-                    Box(
-                        Modifier
-                            .align(Alignment.BottomCenter)
-                            .fillMaxWidth()
-                            .height(170.dp)
-                            .background(
-                                Brush.verticalGradient(
-                                    0f to Color.Transparent,
-                                    0.55f to p.bg.copy(alpha = 0.55f),
-                                    1f to p.bg,
                                 )
                             )
                     )

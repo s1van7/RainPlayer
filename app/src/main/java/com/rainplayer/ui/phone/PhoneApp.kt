@@ -1,6 +1,8 @@
 package com.rainplayer.ui.phone
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -84,6 +86,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -410,16 +413,24 @@ private fun HomeScreen(
     }
 
     Box(Modifier.fillMaxSize()) {
-        // 整页底色：主色薄染 + 页面底色，大图换页时一起渐变
+        // 整页底色：主色大面积染色，从顶到底都是同一色调，大图的底边才能融进去。
+        // 换页时颜色用动画过渡，背景不会突然跳。
+        val tint by animateColorAsState(
+            targetValue = heroTint ?: p.bg,
+            animationSpec = tween(650),
+            label = "heroTint",
+        )
+        val deep = lerp(p.bg, tint, if (p.isLight) 0.18f else 0.55f)
+        val mid = lerp(p.bg, tint, if (p.isLight) 0.10f else 0.32f)
+        val shallow = lerp(p.bg, tint, if (p.isLight) 0.04f else 0.14f)
         Box(
             Modifier
                 .fillMaxSize()
                 .background(
                     Brush.verticalGradient(
-                        listOf(
-                            (heroTint ?: p.bg).copy(alpha = if (p.isLight) 0.22f else 0.30f),
-                            p.bg.copy(alpha = 0f),
-                        )
+                        0f to deep,
+                        0.42f to mid,
+                        1f to shallow,
                     )
                 )
         )
@@ -461,7 +472,7 @@ private fun HomeScreen(
         }
 
         // 滚动后内容会从状态栏下面穿过，铺一层页面底色把它和状态栏图标隔开；
-        // 停在顶部时不铺，大图依然是完整的。
+        // 停在顶部时不铺，大图依然是完整的。颜色取页面顶部那层主色，衔接不出色差。
         val scrolled = listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset > 6
         val veil = if (scrolled) 0.97f else 0f
         Box(
@@ -470,9 +481,9 @@ private fun HomeScreen(
                 .height(statusTop + 18.dp)
                 .background(
                     Brush.verticalGradient(
-                        0f to p.bg.copy(alpha = veil),
-                        0.80f to p.bg.copy(alpha = veil),
-                        1f to p.bg.copy(alpha = 0f),
+                        0f to deep.copy(alpha = veil),
+                        0.80f to deep.copy(alpha = veil),
+                        1f to deep.copy(alpha = 0f),
                     )
                 )
         )
@@ -505,38 +516,43 @@ private fun arrangeRows(config: com.rainplayer.data.ServerConfig?, rows: List<Ho
 /**
  * 每日推荐。
  *
- * 从首页各行里挑出带图的条目，**电影和剧集各取一半交替排列**，
- * 再按「天」做确定性轮转——同一天进来顺序稳定，换一天自动换一批。
+ * **每个媒体库各出一个**（取该库里评分最高的那部），保证轮播能覆盖到所有库；
+ * 库太少时用其余高分条目补齐到 6 个。最后按「天」做确定性轮转——
+ * 同一天进来顺序稳定，换一天自动换一批。
  */
 private fun dailyPicks(rows: List<HomeRow>): List<MediaCard> {
-    val pool = LinkedHashMap<String, MediaCard>()
-    rows.filter { it.kind != RowKind.CONTINUE }
-        .flatMap { it.items }
-        .filter { !it.posterUrl.isNullOrBlank() || !it.backdropUrl.isNullOrBlank() }
-        .forEach { pool.putIfAbsent(it.id, it) }
-    if (pool.size < 3) {
-        rows.filter { it.kind == RowKind.CONTINUE }.flatMap { it.items }.forEach { pool.putIfAbsent(it.id, it) }
+    val picks = LinkedHashMap<String, MediaCard>()
+
+    fun usable(card: MediaCard) =
+        !card.posterUrl.isNullOrBlank() || !card.backdropUrl.isNullOrBlank()
+
+    // 一行 = 一个媒体库（继续观看那行没有 libraryId，跳过）
+    rows.filter { it.kind != RowKind.CONTINUE && it.libraryId != null }
+        .forEach { row ->
+            val best = row.items.filter { usable(it) }.maxByOrNull { it.rating ?: 0.0 }
+            if (best != null) picks.putIfAbsent(best.id, best)
+        }
+
+    // 只有一个库（或库太少）时，用其余条目按评分补齐
+    if (picks.size < 6) {
+        rows.filter { it.kind != RowKind.CONTINUE }
+            .flatMap { it.items }
+            .filter { usable(it) }
+            .sortedByDescending { it.rating ?: 0.0 }
+            .forEach { if (picks.size < 6) picks.putIfAbsent(it.id, it) }
+    }
+    if (picks.size < 3) {
+        rows.filter { it.kind == RowKind.CONTINUE }
+            .flatMap { it.items }
+            .filter { usable(it) }
+            .forEach { picks.putIfAbsent(it.id, it) }
     }
 
-    val ranked = pool.values.sortedByDescending { it.rating ?: 0.0 }
-    val movies = ranked.filter { it.type == MediaType.MOVIE }
-    val series = ranked.filter { it.type == MediaType.SERIES }
-    val others = ranked.filter { it.type != MediaType.MOVIE && it.type != MediaType.SERIES }
-
-    // 电影 / 剧集交替，保证轮播里两类都有
-    val mixed = ArrayList<MediaCard>(16)
-    var i = 0
-    while (mixed.size < 12 && (i < movies.size || i < series.size)) {
-        movies.getOrNull(i)?.let { mixed += it }
-        series.getOrNull(i)?.let { mixed += it }
-        i++
-    }
-    mixed += others.take(12 - mixed.size)
-
+    val mixed = picks.values.toList()
     if (mixed.isEmpty()) return emptyList()
     val day = Calendar.getInstance().get(Calendar.DAY_OF_YEAR)
     val start = day % mixed.size
-    return (mixed.drop(start) + mixed.take(start)).take(6)
+    return (mixed.drop(start) + mixed.take(start)).take(10)
 }
 
 @Composable

@@ -9,11 +9,11 @@
         ResizeMode="CanMinimize">
 
     <Grid>
-        <!-- 背景渐变 -->
+        <!-- 背景渐变：颜色由代码按明暗模式填充，浅色下不会出现深底深字 -->
         <Grid.Background>
-            <RadialGradientBrush Center="0.2,0.1" GradientOrigin="0.2,0.1" RadiusX="1.1" RadiusY="1.2">
-                <GradientStop Color="#1B2A4A" Offset="0" />
-                <GradientStop Color="#0E1014" Offset="1" />
+            <RadialGradientBrush x:Name="BgGradient" Center="0.2,0.1" GradientOrigin="0.2,0.1" RadiusX="1.1" RadiusY="1.2">
+                <GradientStop x:Name="BgStop0" Color="#1B2A4A" Offset="0" />
+                <GradientStop x:Name="BgStop1" Color="#0E1014" Offset="1" />
             </RadialGradientBrush>
         </Grid.Background>
 
@@ -40,7 +40,7 @@
             </StackPanel>
 
             <!-- 右侧登录卡片 -->
-            <Border Grid.Column="1" Background="#CC16191F" CornerRadius="16" Padding="34"
+            <Border x:Name="LoginCard" Grid.Column="1" Background="#CC16191F" CornerRadius="16" Padding="34"
                     VerticalAlignment="Center" BorderBrush="#22FFFFFF" BorderThickness="1">
                 <StackPanel>
                     <TextBlock Text="连接服务器" Style="{StaticResource SectionText}" FontSize="19" Margin="0,0,0,22" />

@@ -40,10 +40,17 @@ ArchitecturesAllowed=x64
 ArchitecturesInstallIn64BitMode=x64
 MinVersion=10.0
 UninstallDisplayIcon={app}\{#MyAppExeName}
-PrivilegesRequiredOverridesAllowed=dialog
+; 不弹「为所有用户/仅我」的前置框（那个框的按钮是英文的），
+; 需要时用 /ALLUSERS 或 /CURRENTUSER 命令行参数指定
+PrivilegesRequiredOverridesAllowed=commandline
+; 多语言时显示语言选择框，默认停在第一个（简体中文）
+ShowLanguageDialog=yes
+; 不按系统语言自动挑，一律默认简体中文
+LanguageDetectionMethod=none
 
 [Languages]
-Name: "chinesesimplified"; MessagesFile: "compiler:Default.isl"
+Name: "chinesesimplified"; MessagesFile: "compiler:Languages\ChineseSimplified.isl"
+Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
 Name: "desktopicon"; Description: "创建桌面快捷方式"; GroupDescription: "附加任务："; Flags: unchecked

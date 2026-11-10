@@ -1244,35 +1244,42 @@ public partial class MainWindow : Window
         return head.Concat(tail).ToList();
     }
 
+    /// <summary>
+    /// 每日推荐：每个媒体库各出一个（取该库评分最高的），
+    /// 库太少时用其余高分条目补齐；最后按天做确定性轮转。
+    /// </summary>
     private static List<MediaCard> PickDaily(List<HomeRow> rows)
     {
-        var pool = new Dictionary<string, MediaCard>();
-        foreach (var card in rows.Where(r => r.Kind != RowKind.Continue)
-                     .SelectMany(r => r.Items)
-                     .Where(c => !string.IsNullOrWhiteSpace(c.BackdropUrl)))
+        static bool Usable(MediaCard c) =>
+            !string.IsNullOrWhiteSpace(c.PosterUrl) || !string.IsNullOrWhiteSpace(c.BackdropUrl);
+
+        var picks = new Dictionary<string, MediaCard>();
+
+        // 一行 = 一个媒体库（继续观看那行没有 LibraryId，跳过）
+        foreach (var row in rows.Where(r => r.Kind != RowKind.Continue && r.LibraryId != null))
         {
-            pool.TryAdd(card.Id, card);
+            var best = row.Items.Where(Usable).OrderByDescending(c => c.Rating ?? 0).FirstOrDefault();
+            if (best != null) picks.TryAdd(best.Id, best);
         }
 
-        var ranked = pool.Values.OrderByDescending(c => c.Rating ?? 0).ToList();
-        var movies = ranked.Where(c => c.Type == MediaType.Movie).ToList();
-        var series = ranked.Where(c => c.Type == MediaType.Series).ToList();
-        var others = ranked.Where(c => c.Type != MediaType.Movie && c.Type != MediaType.Series).ToList();
-
-        // 电影 / 剧集交替，保证轮播里两类都有
-        var mixed = new List<MediaCard>(12);
-        for (var i = 0; mixed.Count < 12 && (i < movies.Count || i < series.Count); i++)
+        if (picks.Count < 6)
         {
-            if (i < movies.Count) mixed.Add(movies[i]);
-            if (i < series.Count) mixed.Add(series[i]);
+            foreach (var card in rows.Where(r => r.Kind != RowKind.Continue)
+                         .SelectMany(r => r.Items)
+                         .Where(Usable)
+                         .OrderByDescending(c => c.Rating ?? 0))
+            {
+                if (picks.Count >= 6) break;
+                picks.TryAdd(card.Id, card);
+            }
         }
-        mixed.AddRange(others.Take(Math.Max(0, 12 - mixed.Count)));
 
+        var mixed = picks.Values.ToList();
         if (mixed.Count == 0) return mixed;
 
         var day = DateTime.Now.DayOfYear;
         var start = day % mixed.Count;
-        return mixed.Skip(start).Concat(mixed.Take(start)).Take(6).ToList();
+        return mixed.Skip(start).Concat(mixed.Take(start)).Take(10).ToList();
     }
 
     private UIElement BuildDailyBanner(List<MediaCard> items)

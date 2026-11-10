@@ -1,6 +1,7 @@
 using System.Net.Http;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Media;
 using RainPlayer.Core.Backends;
 using RainPlayer.Core.Models;
 using RainPlayer.Core.Settings;
@@ -21,7 +22,30 @@ public partial class LoginWindow : Window
         UrlBox.Text = "http://192.168.1.10:8096";
         UserBox.Focus();
 
+        ApplyLook();
         Loaded += (_, _) => UpdateHint();
+    }
+
+    /// <summary>
+    /// 登录页背景跟明暗模式走。
+    /// 之前背景写死深蓝，浅色模式下文字是近黑色，整页几乎看不清。
+    /// </summary>
+    private void ApplyLook()
+    {
+        if (Themes.ThemeManager.IsLight)
+        {
+            BgStop0.Color = Themes.ThemeManager.Hex("#E8EEFA");
+            BgStop1.Color = Themes.ThemeManager.Hex("#FBFCFE");
+            LoginCard.Background = new SolidColorBrush(Color.FromArgb(0xF2, 0xFF, 0xFF, 0xFF));
+            LoginCard.BorderBrush = new SolidColorBrush(Color.FromArgb(0x22, 0x00, 0x00, 0x00));
+        }
+        else
+        {
+            BgStop0.Color = Themes.ThemeManager.Hex("#1B2A4A");
+            BgStop1.Color = Themes.ThemeManager.Hex("#0E1014");
+            LoginCard.Background = new SolidColorBrush(Color.FromArgb(0xCC, 0x16, 0x19, 0x1F));
+            LoginCard.BorderBrush = new SolidColorBrush(Color.FromArgb(0x22, 0xFF, 0xFF, 0xFF));
+        }
     }
 
     private ServerKind SelectedKind => Kinds[Math.Max(KindBox.SelectedIndex, 0)];
