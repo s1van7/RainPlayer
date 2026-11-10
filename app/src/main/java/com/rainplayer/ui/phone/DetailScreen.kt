@@ -16,12 +16,14 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.grid.items as gridItems
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -42,6 +44,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -82,6 +85,12 @@ import com.rainplayer.ui.theme.RainPlayerText
 import com.rainplayer.ui.theme.RainPlayerTextDim
 import com.rainplayer.ui.theme.rainPalette
 import kotlinx.coroutines.launch
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
 
 /**
  * 详情页。
@@ -105,6 +114,12 @@ fun DetailScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val p = rainPalette
+
+    // 详情页顶部是大图，状态栏图标固定用白色
+    DisposableEffect(Unit) {
+        com.rainplayer.ui.theme.SystemBarsState.overImage = true
+        onDispose { com.rainplayer.ui.theme.SystemBarsState.overImage = false }
+    }
 
     var detail by remember { mutableStateOf<MediaDetail?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -313,10 +328,11 @@ fun DetailScreen(
                                     )
                             )
 
-                            // 顶部按钮：返回 / 搜索 / 更多
+                            // 顶部按钮：返回 / 搜索 / 更多（避开状态栏）
                             Row(
                                 Modifier
                                     .fillMaxWidth()
+                                    .statusBarsPadding()
                                     .padding(horizontal = 10.dp, vertical = 8.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
@@ -670,10 +686,54 @@ fun DetailScreen(
 
                     // ------------------------------------------------ 选集
                     if (d.type == MediaType.SERIES && episodes.isNotEmpty()) {
+                        item {
+                            Row(
+                                Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 14.dp, bottom = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text(
+                                    "选集",
+                                    color = RainPlayerText,
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Text(
+                                    "共 ${episodes.size} 集",
+                                    color = RainPlayerTextDim,
+                                    fontSize = 10.sp,
+                                )
+                                Spacer(Modifier.weight(1f))
+                                // 整部剧集也能直接跳集
+                                Box(
+                                    Modifier
+                                        .clip(RoundedCornerShape(9.dp))
+                                        .background(RainPlayerAccent.copy(alpha = 0.16f))
+                                        .border(
+                                            1.dp,
+                                            RainPlayerAccent.copy(alpha = 0.45f),
+                                            RoundedCornerShape(9.dp),
+                                        )
+                                        .clickable { showAllEpisodes = true }
+                                        .padding(horizontal = 10.dp, vertical = 6.dp)
+                                ) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(
+                                            Icons.Filled.GridView,
+                                            contentDescription = "全部集数",
+                                            tint = RainPlayerAccent,
+                                            modifier = Modifier.size(14.dp),
+                                        )
+                                        Spacer(Modifier.width(4.dp))
+                                        Text("全部", color = RainPlayerAccent, fontSize = 11.sp)
+                                    }
+                                }
+                            }
+                        }
                         if (d.seasons.size > 1) {
                             item {
                                 LazyRow(
-                                    contentPadding = PaddingValues(horizontal = 20.dp, vertical = 12.dp),
+                                    contentPadding = PaddingValues(horizontal = 20.dp, vertical = 6.dp),
                                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                                 ) {
                                     items(d.seasons) { season ->
@@ -693,10 +753,6 @@ fun DetailScreen(
                                         }
                                     }
                                 }
-                            }
-                        } else {
-                            item {
-                                SectionTitle("选集", Modifier.padding(top = 14.dp, bottom = 6.dp))
                             }
                         }
 
@@ -856,21 +912,33 @@ fun DetailScreen(
         }
     }
 
-    if (showAllEpisodes && siblings.isNotEmpty()) {
+    // 单集走 siblings；整部剧集走当前选中季的 episodes
+    val gridEpisodes = if (currentEpisode != null) siblings else episodes
+    if (showAllEpisodes && gridEpisodes.isNotEmpty()) {
         EpisodeGridDialog(
-            episodes = siblings,
-            currentId = itemId,
-            subtitle = currentEpisode?.let { "第 ${it.seasonIndex} 季 · 共 ${siblings.size} 集" },
+            episodes = gridEpisodes,
+            currentId = if (currentEpisode != null) itemId else "",
+            subtitle = if (currentEpisode != null) {
+                currentEpisode?.let { "第 ${it.seasonIndex} 季 · 共 ${gridEpisodes.size} 集" }
+            } else {
+                (selectedSeason?.name ?: "") + " · 共 ${gridEpisodes.size} 集"
+            },
             onDismiss = { showAllEpisodes = false },
             onPick = { ep ->
                 showAllEpisodes = false
-                if (ep.id != itemId) onReplaceDetail(ep.id, ep.title)
+                if (currentEpisode != null) {
+                    if (ep.id != itemId) onReplaceDetail(ep.id, ep.title)
+                } else {
+                    onOpenEpisode(ep)
+                }
             },
         )
     }
 }
 
-/** 全部集数九宫格：6 列，点哪集跳哪集。 */
+/**
+ * 全部集数九宫格：6 列，点哪集跳哪集；顶部可以直接输入集号跳转。
+ */
 @Composable
 private fun EpisodeGridDialog(
     episodes: List<Episode>,
@@ -880,26 +948,85 @@ private fun EpisodeGridDialog(
     onPick: (Episode) -> Unit,
 ) {
     val p = rainPalette
+    val gridState = rememberLazyGridState()
+    var input by remember { mutableStateOf("") }
+
+    fun jumpTo(index: Int) {
+        val ep = episodes.firstOrNull { it.index == index } ?: return
+        onPick(ep)
+    }
+
+    // 打开时自动滚到当前集
+    LaunchedEffect(currentId, episodes.size) {
+        val idx = episodes.indexOfFirst { it.id == currentId }
+        if (idx > 0) gridState.scrollToItem((idx / 6) * 6)
+    }
+
     Dialog(onDismissRequest = onDismiss) {
         GlassSurface(
-            Modifier.fillMaxWidth().heightIn(max = 460.dp),
+            Modifier.fillMaxWidth().heightIn(max = 520.dp),
             shape = RoundedCornerShape(20.dp),
             level = 2,
         ) {
-            Column(Modifier.padding(16.dp)) {
+            Column(Modifier.fillMaxWidth().padding(16.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("选集", color = RainPlayerText, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
-                    subtitle?.let {
+                    subtitle?.takeIf { it.isNotBlank() }?.let {
                         Spacer(Modifier.width(8.dp))
                         Text(it, color = RainPlayerTextDim, fontSize = 11.sp)
                     }
                 }
+
                 Spacer(Modifier.height(12.dp))
+
+                // 直接输入集号跳转
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    OutlinedTextField(
+                        value = input,
+                        onValueChange = { v -> input = v.filter { it.isDigit() }.take(4) },
+                        singleLine = true,
+                        placeholder = { Text("输入集数跳转", color = RainPlayerTextDim, fontSize = 12.sp) },
+                        textStyle = androidx.compose.ui.text.TextStyle(
+                            fontSize = 13.sp,
+                            color = RainPlayerText,
+                        ),
+                        keyboardOptions = KeyboardOptions(
+                            keyboardType = KeyboardType.Number,
+                            imeAction = ImeAction.Go,
+                        ),
+                        keyboardActions = KeyboardActions(
+                            onGo = { input.toIntOrNull()?.let { jumpTo(it) } },
+                        ),
+                        shape = RoundedCornerShape(10.dp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = RainPlayerAccent,
+                            unfocusedBorderColor = RainPlayerTextDim.copy(alpha = 0.4f),
+                            cursorColor = RainPlayerAccent,
+                            focusedContainerColor = Color.Transparent,
+                            unfocusedContainerColor = Color.Transparent,
+                        ),
+                        modifier = Modifier.weight(1f).height(50.dp),
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Box(
+                        Modifier
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(RainPlayerAccent)
+                            .clickable { input.toIntOrNull()?.let { jumpTo(it) } }
+                            .padding(horizontal = 16.dp, vertical = 13.dp)
+                    ) {
+                        Text("跳转", color = Color.Black, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                    }
+                }
+
+                Spacer(Modifier.height(12.dp))
+
                 LazyVerticalGrid(
                     columns = GridCells.Fixed(6),
+                    state = gridState,
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.fillMaxWidth().weight(1f, fill = false),
                 ) {
                     gridItems(episodes, key = { it.id }) { ep ->
                         val selected = ep.id == currentId

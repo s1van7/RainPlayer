@@ -1254,12 +1254,25 @@ public partial class MainWindow : Window
             pool.TryAdd(card.Id, card);
         }
 
-        var list = pool.Values.OrderByDescending(c => c.Rating ?? 0).Take(12).ToList();
-        if (list.Count == 0) return list;
+        var ranked = pool.Values.OrderByDescending(c => c.Rating ?? 0).ToList();
+        var movies = ranked.Where(c => c.Type == MediaType.Movie).ToList();
+        var series = ranked.Where(c => c.Type == MediaType.Series).ToList();
+        var others = ranked.Where(c => c.Type != MediaType.Movie && c.Type != MediaType.Series).ToList();
+
+        // 电影 / 剧集交替，保证轮播里两类都有
+        var mixed = new List<MediaCard>(12);
+        for (var i = 0; mixed.Count < 12 && (i < movies.Count || i < series.Count); i++)
+        {
+            if (i < movies.Count) mixed.Add(movies[i]);
+            if (i < series.Count) mixed.Add(series[i]);
+        }
+        mixed.AddRange(others.Take(Math.Max(0, 12 - mixed.Count)));
+
+        if (mixed.Count == 0) return mixed;
 
         var day = DateTime.Now.DayOfYear;
-        var start = day % list.Count;
-        return list.Skip(start).Concat(list.Take(start)).Take(6).ToList();
+        var start = day % mixed.Count;
+        return mixed.Skip(start).Concat(mixed.Take(start)).Take(6).ToList();
     }
 
     private UIElement BuildDailyBanner(List<MediaCard> items)

@@ -52,6 +52,7 @@ import com.rainplayer.ui.theme.RainPlayerAccent
 import com.rainplayer.ui.theme.RainPlayerFill
 import com.rainplayer.ui.theme.RainPlayerGold
 import com.rainplayer.ui.theme.RainPlayerStroke
+import com.rainplayer.ui.theme.RainPlayerSurface
 import com.rainplayer.ui.theme.RainPlayerSurfaceHigh
 import com.rainplayer.ui.theme.RainPlayerText
 import com.rainplayer.ui.theme.RainPlayerTextDim
@@ -200,43 +201,34 @@ fun PosterCard(
                     Text("已看", color = RainPlayerTextDim, fontSize = 10.sp)
                 }
             }
-            // 剧集：右上角显示总集数
+            // 剧集：右上角总集数。浅底 + 主题色字，和参考稿一致，颜色跟着主题走
             val count = card.episodeCount ?: 0
             if (card.type == MediaType.SERIES && count > 0) {
-                Box(
-                    Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(6.dp)
-                        .clip(RoundedCornerShape(5.dp))
-                        .background(Color(0xB3000000))
-                        .padding(horizontal = 5.dp, vertical = 2.dp)
-                ) {
-                    Text(
-                        "$count 集",
-                        color = Color.White,
-                        fontSize = 9.sp,
-                        fontWeight = FontWeight.Medium,
-                    )
-                }
+                BadgePill(
+                    modifier = Modifier.align(Alignment.TopEnd).padding(7.dp),
+                    text = "$count",
+                    textColor = RainPlayerAccent,
+                )
             }
             // 右下角评分
             card.rating?.takeIf { it > 0 }?.let { score ->
                 Row(
                     Modifier
                         .align(Alignment.BottomEnd)
-                        .padding(6.dp)
-                        .clip(RoundedCornerShape(5.dp))
-                        .background(Color(0xB3000000))
-                        .padding(horizontal = 5.dp, vertical = 2.dp),
+                        .padding(7.dp)
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(RainPlayerSurface.copy(alpha = 0.92f))
+                        .border(1.dp, RainPlayerAccent.copy(alpha = 0.28f), RoundedCornerShape(6.dp))
+                        .padding(horizontal = 6.dp, vertical = 2.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text("★", color = RainPlayerGold, fontSize = 9.sp)
                     Spacer(Modifier.width(2.dp))
                     Text(
                         "%.1f".format(score),
-                        color = Color.White,
-                        fontSize = 9.sp,
-                        fontWeight = FontWeight.Medium,
+                        color = if (score >= 8.5f) RainPlayerAccent else RainPlayerText,
+                        fontSize = 9.5.sp,
+                        fontWeight = FontWeight.SemiBold,
                     )
                 }
             }
@@ -450,5 +442,23 @@ fun IconTextRow(text: String, modifier: Modifier = Modifier) {
         Box(Modifier.size(4.dp).clip(RoundedCornerShape(2.dp)).background(RainPlayerAccent))
         Spacer(Modifier.width(8.dp))
         Text(text, color = RainPlayerText, fontSize = 14.sp)
+    }
+}
+
+/** 封面上的小角标：浅底 + 主题色字，比纯黑底更贴合浅色主题。 */
+@Composable
+private fun BadgePill(
+    modifier: Modifier = Modifier,
+    text: String,
+    textColor: Color,
+) {
+    Box(
+        modifier
+            .clip(RoundedCornerShape(6.dp))
+            .background(RainPlayerSurface.copy(alpha = 0.92f))
+            .border(1.dp, textColor.copy(alpha = 0.28f), RoundedCornerShape(6.dp))
+            .padding(horizontal = 6.dp, vertical = 2.dp)
+    ) {
+        Text(text, color = textColor, fontSize = 9.5.sp, fontWeight = FontWeight.SemiBold)
     }
 }

@@ -26,10 +26,17 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
@@ -62,6 +69,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
@@ -110,6 +118,7 @@ import com.rainplayer.ui.theme.scrimBrush
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.util.Calendar
+import com.rainplayer.data.MediaType
 
 sealed interface Dest {
     data object Home : Dest
@@ -194,16 +203,31 @@ private fun PhoneScaffold(session: AppSession, onLogout: () -> Unit) {
         }
     }
 
-    Scaffold(containerColor = RainPlayerBg) { padding ->
+    // 滚动位置提升到这一层：进出详情页时列表状态不会被丢掉，返回后停在原位
+    val homeListState = rememberLazyListState()
+    val libraryGridState = rememberLazyGridState()
+    val searchGridState = rememberLazyGridState()
+
+    Scaffold(
+        containerColor = RainPlayerBg,
+        // 沉浸式：内容铺到状态栏 / 导航栏下面，各页自己按需加内边距
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
+    ) { padding ->
         Box(
             Modifier
                 .padding(padding)
                 .fillMaxSize()
+                // 首页大图要顶到状态栏里，详情页大图同理；其余页面统一避开状态栏
+                .then(
+                    if (current == Dest.Home || current is Dest.Detail) Modifier
+                    else Modifier.statusBarsPadding()
+                )
                 .nestedScroll(scrollWatcher)
         ) {
             when (current) {
                 Dest.Home -> HomeScreen(
                     session = session,
+                    listState = homeListState,
                     onOpen = { push(Dest.Detail(it.id, it.title)) },
                     onNavigate = { go(it) },
                     onPush = { push(it) },
@@ -219,7 +243,7 @@ private fun PhoneScaffold(session: AppSession, onLogout: () -> Unit) {
                     onOpen = { push(Dest.LibraryDest(it)) },
                 )
 
-                Dest.Search -> SearchScreen(session) { card ->
+                Dest.Search -> SearchScreen(session, searchGridState) { card ->
                     // 聚合搜索结果可能来自别的服务器：先切过去再进详情
                     card.serverId?.let { sid ->
                         if (sid != session.activeId) {
@@ -246,7 +270,7 @@ private fun PhoneScaffold(session: AppSession, onLogout: () -> Unit) {
                     onDone = { stack.removeAt(stack.lastIndex) },
                 )
 
-                is Dest.LibraryDest -> LibraryScreen(session, current.library) { card ->
+                is Dest.LibraryDest -> LibraryScreen(session, current.library, libraryGridState) { card ->
                     push(Dest.Detail(card.id, card.title))
                 }
 
@@ -290,6 +314,7 @@ private fun FloatingNavBar(current: Dest, onSelect: (Dest) -> Unit) {
     )
     Row(
         Modifier
+            .navigationBarsPadding()
             .padding(bottom = 18.dp)
             .clip(RoundedCornerShape(percent = 50))
             .background(
@@ -343,6 +368,7 @@ private fun FloatingNavBar(current: Dest, onSelect: (Dest) -> Unit) {
 @Composable
 private fun HomeScreen(
     session: AppSession,
+    listState: LazyListState,
     onOpen: (MediaCard) -> Unit,
     onNavigate: (Dest) -> Unit,
     onPush: (Dest) -> Unit,
@@ -353,6 +379,9 @@ private fun HomeScreen(
     var state by remember { mutableStateOf<Load<List<HomeRow>>>(Load.Loading) }
     var reloadKey by remember { mutableStateOf(0) }
     var menuOpen by remember { mutableStateOf(false) }
+    // 大图主色：整页背景跟着它轻微染色，和参考稿一致
+    var heroTint by remember { mutableStateOf<Color?>(null) }
+    val p = rainPalette
 
     LaunchedEffect(backend, reloadKey, active?.activeLineId, active?.activeUserId) {
         if (backend == null) return@LaunchedEffect
@@ -369,7 +398,26 @@ private fun HomeScreen(
     // 有大图时标题栏浮在图上；否则让出 60dp 给标题栏，内容从它下面开始
     val showHero = ok != null && rows.isNotEmpty() && Graph.prefs.dailyRecommend && daily.isNotEmpty()
 
+    // 大图顶到状态栏里，图标要换成白色
+    DisposableEffect(showHero) {
+        com.rainplayer.ui.theme.SystemBarsState.overImage = showHero
+        onDispose { com.rainplayer.ui.theme.SystemBarsState.overImage = false }
+    }
+
     Box(Modifier.fillMaxSize()) {
+        // 整页底色：主色薄染 + 页面底色，大图换页时一起渐变
+        Box(
+            Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.verticalGradient(
+                        listOf(
+                            (heroTint ?: p.bg).copy(alpha = if (p.isLight) 0.22f else 0.30f),
+                            p.bg.copy(alpha = 0f),
+                        )
+                    )
+                )
+        )
         val snapshot = state
         when (snapshot) {
             is Load.Loading -> LoadingView()
@@ -379,6 +427,8 @@ private fun HomeScreen(
                     EmptyView("服务器上没有找到内容")
                 } else {
                     LazyColumn(
+                        state = listState,
+                        modifier = if (showHero) Modifier else Modifier.statusBarsPadding(),
                         contentPadding = PaddingValues(
                             top = if (showHero) 0.dp else 60.dp,
                             // 底部留白给悬浮导航栏让位，避免最后一行被盖住
@@ -386,7 +436,9 @@ private fun HomeScreen(
                         ),
                     ) {
                         if (showHero) {
-                            item(key = "hero") { DailyHero(daily, onOpen) }
+                            item(key = "hero") {
+                                DailyHero(daily, onOpen, onTint = { heroTint = it })
+                            }
                         }
                         items(rows) { row ->
                             SectionRow(
@@ -430,23 +482,38 @@ private fun arrangeRows(config: com.rainplayer.data.ServerConfig?, rows: List<Ho
 /**
  * 每日推荐。
  *
- * 从首页各行里挑出带背景图的条目，按「天」做确定性轮转——同一天进来顺序稳定，
- * 换一天自动换一批，不需要任何服务器端支持。
+ * 从首页各行里挑出带图的条目，**电影和剧集各取一半交替排列**，
+ * 再按「天」做确定性轮转——同一天进来顺序稳定，换一天自动换一批。
  */
 private fun dailyPicks(rows: List<HomeRow>): List<MediaCard> {
     val pool = LinkedHashMap<String, MediaCard>()
     rows.filter { it.kind != RowKind.CONTINUE }
         .flatMap { it.items }
-        .filter { !it.backdropUrl.isNullOrBlank() }
+        .filter { !it.posterUrl.isNullOrBlank() || !it.backdropUrl.isNullOrBlank() }
         .forEach { pool.putIfAbsent(it.id, it) }
     if (pool.size < 3) {
         rows.filter { it.kind == RowKind.CONTINUE }.flatMap { it.items }.forEach { pool.putIfAbsent(it.id, it) }
     }
-    val list = pool.values.sortedByDescending { it.rating ?: 0.0 }.take(12).toList()
-    if (list.isEmpty()) return emptyList()
+
+    val ranked = pool.values.sortedByDescending { it.rating ?: 0.0 }
+    val movies = ranked.filter { it.type == MediaType.MOVIE }
+    val series = ranked.filter { it.type == MediaType.SERIES }
+    val others = ranked.filter { it.type != MediaType.MOVIE && it.type != MediaType.SERIES }
+
+    // 电影 / 剧集交替，保证轮播里两类都有
+    val mixed = ArrayList<MediaCard>(16)
+    var i = 0
+    while (mixed.size < 12 && (i < movies.size || i < series.size)) {
+        movies.getOrNull(i)?.let { mixed += it }
+        series.getOrNull(i)?.let { mixed += it }
+        i++
+    }
+    mixed += others.take(12 - mixed.size)
+
+    if (mixed.isEmpty()) return emptyList()
     val day = Calendar.getInstance().get(Calendar.DAY_OF_YEAR)
-    val start = day % list.size
-    return (list.drop(start) + list.take(start)).take(6)
+    val start = day % mixed.size
+    return (mixed.drop(start) + mixed.take(start)).take(6)
 }
 
 @Composable
@@ -463,7 +530,10 @@ private fun HomeHeader(
 ) {
     val active = session.active
     Row(
-        Modifier.fillMaxWidth().padding(start = 14.dp, end = 8.dp, top = 10.dp, bottom = 8.dp),
+        Modifier
+            .fillMaxWidth()
+            .statusBarsPadding()
+            .padding(start = 14.dp, end = 8.dp, top = 10.dp, bottom = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box {
@@ -826,7 +896,12 @@ fun SubHeader(title: String, onBack: () -> Unit) {
 // ------------------------------------------------------------------ 媒体库内容
 
 @Composable
-private fun LibraryScreen(session: AppSession, library: Library, onOpen: (MediaCard) -> Unit) {
+private fun LibraryScreen(
+    session: AppSession,
+    library: Library,
+    gridState: LazyGridState,
+    onOpen: (MediaCard) -> Unit,
+) {
     val backend = session.backend
     var items by remember { mutableStateOf<List<MediaCard>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
@@ -869,6 +944,7 @@ private fun LibraryScreen(session: AppSession, library: Library, onOpen: (MediaC
             items.isEmpty() -> EmptyView("这个媒体库还没有内容")
             else -> LazyVerticalGrid(
                 columns = GridCells.Adaptive(110.dp),
+                state = gridState,
                 contentPadding = PaddingValues(
                     start = 14.dp, end = 14.dp, top = 6.dp, bottom = 110.dp,
                 ),
@@ -897,7 +973,11 @@ private fun LibraryScreen(session: AppSession, library: Library, onOpen: (MediaC
 // ------------------------------------------------------------------ 聚合搜索
 
 @Composable
-private fun SearchScreen(session: AppSession, onOpen: (MediaCard) -> Unit) {
+private fun SearchScreen(
+    session: AppSession,
+    gridState: LazyGridState,
+    onOpen: (MediaCard) -> Unit,
+) {
     val backend = session.backend
     var query by remember { mutableStateOf("") }
     var results by remember { mutableStateOf<List<MediaCard>>(emptyList()) }
@@ -972,6 +1052,7 @@ private fun SearchScreen(session: AppSession, onOpen: (MediaCard) -> Unit) {
             results.isEmpty() -> EmptyView(if (searched) "没有找到相关结果" else "输入关键词开始搜索")
             else -> LazyVerticalGrid(
                 columns = GridCells.Adaptive(110.dp),
+                state = gridState,
                 contentPadding = PaddingValues(
                     start = 14.dp, end = 14.dp, top = 6.dp, bottom = 110.dp,
                 ),

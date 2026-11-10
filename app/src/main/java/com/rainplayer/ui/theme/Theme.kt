@@ -352,3 +352,14 @@ fun RainPlayerTheme(
         )
     }
 }
+
+/**
+ * 系统栏图标明暗的临时覆盖。
+ *
+ * 首页大图、详情页大图都顶到状态栏里，图本身通常是深色的，
+ * 这时候即使主题是浅色也要把状态栏图标切成白色，否则看不清。
+ */
+object SystemBarsState {
+    /** 当前页面顶部是否压着一张图（是则状态栏图标用白色）。 */
+    var overImage by mutableStateOf(false)
+}
