@@ -32,10 +32,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawWithContent
-import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
@@ -63,18 +60,20 @@ import kotlin.math.absoluteValue
 /**
  * 首页顶部的每日推荐轮播。
  *
- * 版式对齐参考图：
- * - 大图**满屏铺满**，从屏幕最上沿开始，状态栏图标压在画面上；
- * - 图片底部渐隐到页面底色，和下面的内容连成一片；
- * - 图下居中一行「★ 6.9  2005  动画/悬疑  PG-13」，再下面是两行居中简介；
- * - 最后是居中的分页点。
- * 左右切换时当前页轻微缩放、邻页淡出，形成过渡。
+ * 版式对齐参考录屏：
+ * - 大图满屏铺满，从屏幕最上沿开始，状态栏图标压在画面上；
+ * - 图片底边用**与该页背景同色**的渐变盖住，肉眼看不出边界（不用离屏遮罩，避免滚动掉帧）；
+ * - 图下居中「★ 7.7  2026  动作/恐怖」，再是两行居中简介，最后是分页点；
+ * - 左右切换时当前页 1.0，滑走的缩到 0.94 并轻微淡出。
+ *
+ * @param bgDeep 该页整页背景的顶部色，图片底部渐变终点必须用它，否则会出现色带。
  */
 @Composable
 fun DailyHero(
     items: List<MediaCard>,
     onOpen: (MediaCard) -> Unit,
     modifier: Modifier = Modifier,
+    bgDeep: Color = rainPalette.bg,
     onTint: (Color?) -> Unit = {},
 ) {
     if (items.isEmpty()) return
@@ -83,8 +82,8 @@ fun DailyHero(
     val scope = rememberCoroutineScope()
     val screenHeight = LocalConfiguration.current.screenHeightDp.dp
 
-    // 大图高度：屏高 58%，铺满宽度
-    val imageHeight = (screenHeight * 0.58f).coerceIn(340.dp, 600.dp)
+    // 大图高度：屏高 60%，铺满宽度
+    val imageHeight = (screenHeight * 0.60f).coerceIn(360.dp, 620.dp)
 
     // 详情 / 评分 / 主色都按条目缓存，来回滑不会重复请求
     val details = remember { mutableStateMapOf<String, MediaDetail>() }
@@ -127,12 +126,12 @@ fun DailyHero(
     Column(modifier.fillMaxWidth()) {
         HorizontalPager(
             state = pagerState,
-            modifier = Modifier.fillMaxWidth().height(imageHeight + 96.dp),
+            modifier = Modifier.fillMaxWidth().height(imageHeight + 104.dp),
         ) { page ->
             val card = items[page]
             val detail = details[card.id]
 
-            // 过渡：当前页 1.0，滑到一半时缩到 0.92 并淡出，切页不突兀
+            // 过渡：当前页 1.0，滑走时缩到 0.94 并淡出到 70%
             val offset = ((pagerState.currentPage - page) + pagerState.currentPageOffsetFraction)
                 .absoluteValue.coerceIn(0f, 1f)
 
@@ -140,35 +139,16 @@ fun DailyHero(
                 Modifier
                     .fillMaxWidth()
                     .graphicsLayer {
-                        val s = 1f - offset * 0.08f
+                        val s = 1f - offset * 0.06f
                         scaleX = s
                         scaleY = s
-                        alpha = 1f - offset * 0.35f
+                        alpha = 1f - offset * 0.30f
                     }
                     .clickable { onOpen(card) },
             ) {
-                Box(
-                    Modifier
-                        .fillMaxWidth()
-                        .height(imageHeight)
-                        // 需要离屏图层，底部才能用 DstIn 把图片本身擦成透明
-                        .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
-                        // 底部把图片擦成透明，露出的就是整页主色底，
-                        // 两边同一个色，不会再出现一条浅色的分界线
-                        .drawWithContent {
-                            drawContent()
-                            drawRect(
-                                brush = Brush.verticalGradient(
-                                    0f to Color.Black,
-                                    0.62f to Color.Black,
-                                    1f to Color.Transparent,
-                                ),
-                                blendMode = BlendMode.DstIn,
-                            )
-                        },
-                ) {
+                Box(Modifier.fillMaxWidth().height(imageHeight)) {
                     AsyncImage(
-                        // 用竖版封面（自带片名），和参考图一致
+                        // 用竖版封面（自带片名），和参考录屏一致
                         model = imageRequest(card.posterUrl ?: card.backdropUrl, allowHardware = false),
                         contentDescription = card.title,
                         contentScale = ContentScale.Crop,
@@ -185,7 +165,7 @@ fun DailyHero(
                             }
                         },
                     )
-                    // 顶部压一层暗角：白色服务器胶囊压在亮色画面上也能读清
+                    // 顶部暗角：白色服务器胶囊压在亮色画面上也能读清
                     Box(
                         Modifier
                             .fillMaxWidth()
@@ -196,11 +176,26 @@ fun DailyHero(
                                 )
                             )
                     )
+                    // 底部盖一层「本页背景色」的渐变，图片下沿自然化进背景，没有分界线也没有空白
+                    Box(
+                        Modifier
+                            .align(Alignment.BottomCenter)
+                            .fillMaxWidth()
+                            .height(190.dp)
+                            .background(
+                                Brush.verticalGradient(
+                                    0f to bgDeep.copy(alpha = 0f),
+                                    0.42f to bgDeep.copy(alpha = 0.45f),
+                                    0.78f to bgDeep.copy(alpha = 0.92f),
+                                    1f to bgDeep,
+                                )
+                            )
+                    )
                 }
 
-                Spacer(Modifier.height(12.dp))
+                Spacer(Modifier.height(10.dp))
 
-                // ★ 6.9   2005   动画/悬疑   PG-13（居中）
+                // ★ 7.7   2026   动作/恐怖   PG-13（居中）
                 Row(
                     Modifier.fillMaxWidth().padding(horizontal = 20.dp),
                     horizontalArrangement = Arrangement.Center,
@@ -253,7 +248,7 @@ fun DailyHero(
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
                         textAlign = TextAlign.Center,
-                        modifier = Modifier.fillMaxWidth().padding(start = 24.dp, end = 24.dp, top = 8.dp),
+                        modifier = Modifier.fillMaxWidth().padding(start = 24.dp, end = 24.dp, top = 7.dp),
                     )
                 }
             }
@@ -262,7 +257,7 @@ fun DailyHero(
         // 分页点：居中
         if (items.size > 1) {
             Row(
-                Modifier.fillMaxWidth().padding(top = 10.dp),
+                Modifier.fillMaxWidth().padding(top = 8.dp),
                 horizontalArrangement = Arrangement.Center,
                 verticalAlignment = Alignment.CenterVertically,
             ) {

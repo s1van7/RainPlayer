@@ -75,6 +75,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -413,23 +414,24 @@ private fun HomeScreen(
     }
 
     Box(Modifier.fillMaxSize()) {
-        // 整页底色：主色大面积染色，从顶到底都是同一色调，大图的底边才能融进去。
+        // 整页底色：主色大面积染色，从顶到底同一色调，大图底边才能融进去。
         // 换页时颜色用动画过渡，背景不会突然跳。
         val tint by animateColorAsState(
             targetValue = heroTint ?: p.bg,
-            animationSpec = tween(650),
+            animationSpec = tween(600),
             label = "heroTint",
         )
-        val deep = lerp(p.bg, tint, if (p.isLight) 0.18f else 0.55f)
-        val mid = lerp(p.bg, tint, if (p.isLight) 0.10f else 0.32f)
-        val shallow = lerp(p.bg, tint, if (p.isLight) 0.04f else 0.14f)
+        val deep = lerp(p.bg, tint, if (p.isLight) 0.34f else 0.58f)
+        val shallow = lerp(p.bg, tint, if (p.isLight) 0.15f else 0.26f)
         Box(
             Modifier
                 .fillMaxSize()
                 .background(
                     Brush.verticalGradient(
+                        // 0.62 之前保持同一个深色，大图底部（约 60% 屏高）正好落在这一段上，
+                        // 渐变终点用 deep 就能做到完全无缝
                         0f to deep,
-                        0.42f to mid,
+                        0.62f to deep,
                         1f to shallow,
                     )
                 )
@@ -454,7 +456,12 @@ private fun HomeScreen(
                     ) {
                         if (showHero) {
                             item(key = "hero") {
-                                DailyHero(daily, onOpen, onTint = { heroTint = it })
+                                DailyHero(
+                                    items = daily,
+                                    onOpen = onOpen,
+                                    bgDeep = deep,
+                                    onTint = { heroTint = it },
+                                )
                             }
                         }
                         items(rows) { row ->
@@ -473,7 +480,14 @@ private fun HomeScreen(
 
         // 滚动后内容会从状态栏下面穿过，铺一层页面底色把它和状态栏图标隔开；
         // 停在顶部时不铺，大图依然是完整的。颜色取页面顶部那层主色，衔接不出色差。
-        val scrolled = listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset > 6
+        //
+        // 注意：必须用 derivedStateOf 包一层。直接读 scrollOffset 会让整个首页在每一帧
+        // 滚动时都重组一次，列表越长越卡——这就是上一版「上下滑动卡死」的原因。
+        val scrolled by remember {
+            derivedStateOf {
+                listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset > 6
+            }
+        }
         val veil = if (scrolled) 0.97f else 0f
         Box(
             Modifier

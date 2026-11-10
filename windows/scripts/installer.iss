@@ -1,4 +1,4 @@
-; RainPlayer Windows 安装包脚本（Inno Setup 6）
+﻿; RainPlayer Windows 安装包脚本（Inno Setup 6）
 ; 由 scripts\package.ps1 调用，也可直接：
 ;   iscc /DMyAppVersion=1.0.0 /DSourceDir=..\dist /DOutputDir=..\release scripts\installer.iss
 
@@ -49,7 +49,9 @@ ShowLanguageDialog=yes
 LanguageDetectionMethod=none
 
 [Languages]
-Name: "chinesesimplified"; MessagesFile: "compiler:Languages\ChineseSimplified.isl"
+; 语言包随仓库一起带（scripts\ChineseSimplified.isl），不依赖 Inno 安装目录，
+; 并且里面显式指定了 Microsoft YaHei UI，避免汉字渲染成方块
+Name: "chinesesimplified"; MessagesFile: "ChineseSimplified.isl"
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
