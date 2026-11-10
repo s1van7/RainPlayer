@@ -8,9 +8,9 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -34,9 +34,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -49,20 +51,21 @@ import com.rainplayer.data.MediaType
 import com.rainplayer.data.RatingsRepo
 import com.rainplayer.ui.common.imageRequest
 import com.rainplayer.ui.theme.RainPlayerGold
-import com.rainplayer.ui.theme.RainPlayerText
 import com.rainplayer.ui.theme.RainPlayerTextDim
 import com.rainplayer.ui.theme.rainPalette
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlin.math.absoluteValue
 
 /**
  * 首页顶部的每日推荐轮播。
  *
- * 版式对齐参考录屏：
- * - 卡片按 **2:3 竖版海报**比例，宽约屏宽的 80%，右边露出下一张的边；
- * - 图片四角圆角，顶部只压一层很淡的暗角（保证白色服务器胶囊在亮图上可读）；
- * - 图片下方是「★ 6.6  2026  剧情 犯罪」一行、两行简介，最后是居中的分页点；
- * - 整页背景跟着当前这张图的主色轻微染色。
+ * 版式对齐参考图：
+ * - 大图**满屏铺满**，从屏幕最上沿开始，状态栏图标压在画面上；
+ * - 图片底部渐隐到页面底色，和下面的内容连成一片；
+ * - 图下居中一行「★ 6.9  2005  动画/悬疑  PG-13」，再下面是两行居中简介；
+ * - 最后是居中的分页点。
+ * 左右切换时当前页轻微缩放、邻页淡出，形成过渡。
  */
 @Composable
 fun DailyHero(
@@ -75,13 +78,10 @@ fun DailyHero(
     val p = rainPalette
     val pagerState = rememberPagerState(pageCount = { items.size })
     val scope = rememberCoroutineScope()
-    val screenWidth = LocalConfiguration.current.screenWidthDp.dp
+    val screenHeight = LocalConfiguration.current.screenHeightDp.dp
 
-    // 右侧露出的宽度：约屏宽 20%，太窄就看不出「后面还有」
-    val peek = (screenWidth * 0.20f).coerceIn(64.dp, 110.dp)
-    // 卡片宽 = 屏宽 - 露出部分；高按 2:3 走，和录屏里的竖版海报一致
-    val cardWidth = screenWidth - peek
-    val cardHeight = cardWidth * 1.5f
+    // 大图高度：屏高 58%，铺满宽度
+    val imageHeight = (screenHeight * 0.58f).coerceIn(340.dp, 600.dp)
 
     // 详情 / 评分 / 主色都按条目缓存，来回滑不会重复请求
     val details = remember { mutableStateMapOf<String, MediaDetail>() }
@@ -124,29 +124,33 @@ fun DailyHero(
     Column(modifier.fillMaxWidth()) {
         HorizontalPager(
             state = pagerState,
-            contentPadding = PaddingValues(end = peek),
-            pageSpacing = 10.dp,
-            modifier = Modifier
-                .fillMaxWidth()
-                // 图片 + 下方信息区（评分行 / 两行简介）
-                .height(cardHeight + 92.dp),
+            modifier = Modifier.fillMaxWidth().height(imageHeight + 96.dp),
         ) { page ->
             val card = items[page]
             val detail = details[card.id]
-            Column(Modifier.fillMaxWidth().clickable { onOpen(card) }) {
-                Box(
-                    Modifier
-                        .fillMaxWidth()
-                        .height(cardHeight)
-                        .clip(RoundedCornerShape(20.dp))
-                        .background(p.surfaceHigh),
-                ) {
+
+            // 过渡：当前页 1.0，滑到一半时缩到 0.92 并淡出，切页不突兀
+            val offset = ((pagerState.currentPage - page) + pagerState.currentPageOffsetFraction)
+                .absoluteValue.coerceIn(0f, 1f)
+
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .graphicsLayer {
+                        val s = 1f - offset * 0.08f
+                        scaleX = s
+                        scaleY = s
+                        alpha = 1f - offset * 0.35f
+                    }
+                    .clickable { onOpen(card) },
+            ) {
+                Box(Modifier.fillMaxWidth().height(imageHeight)) {
                     AsyncImage(
-                        // 海报通常自带片名，和参考稿一样不再额外压标题
-                        model = imageRequest(card.posterUrl ?: card.backdropUrl, allowHardware = false),
+                        // 横向大图优先，没有就退回竖版海报
+                        model = imageRequest(card.backdropUrl ?: card.posterUrl, allowHardware = false),
                         contentDescription = card.title,
                         contentScale = ContentScale.Crop,
-                        modifier = Modifier.fillMaxWidth().height(cardHeight),
+                        modifier = Modifier.fillMaxSize(),
                         onSuccess = { state ->
                             val bmp = (state.result.drawable as? BitmapDrawable)?.bitmap
                             val c = bmp?.let { dominantColor(it) }
@@ -159,24 +163,39 @@ fun DailyHero(
                             }
                         },
                     )
-                    // 顶部只留一层很淡的暗角：白色胶囊压在亮色封面上时也能读清
+                    // 顶部压一层暗角：白色服务器胶囊压在亮色画面上也能读清
                     Box(
                         Modifier
                             .fillMaxWidth()
-                            .height(110.dp)
+                            .height(150.dp)
                             .background(
                                 Brush.verticalGradient(
-                                    listOf(Color(0x3D000000), Color.Transparent)
+                                    listOf(Color(0x66000000), Color.Transparent)
+                                )
+                            )
+                    )
+                    // 底部渐隐到页面底色，和下面内容连成一片
+                    Box(
+                        Modifier
+                            .align(Alignment.BottomCenter)
+                            .fillMaxWidth()
+                            .height(170.dp)
+                            .background(
+                                Brush.verticalGradient(
+                                    0f to Color.Transparent,
+                                    0.55f to p.bg.copy(alpha = 0.55f),
+                                    1f to p.bg,
                                 )
                             )
                     )
                 }
 
-                Spacer(Modifier.height(10.dp))
+                Spacer(Modifier.height(12.dp))
 
-                // ★ 6.6   2026   剧情 犯罪
+                // ★ 6.9   2005   动画/悬疑   PG-13（居中）
                 Row(
-                    Modifier.padding(horizontal = 4.dp),
+                    Modifier.fillMaxWidth().padding(horizontal = 20.dp),
+                    horizontalArrangement = Arrangement.Center,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     (card.rating ?: detail?.rating)?.takeIf { it > 0 }?.let {
@@ -188,12 +207,12 @@ fun DailyHero(
                             fontSize = 12.sp,
                             fontWeight = FontWeight.SemiBold,
                         )
-                        Spacer(Modifier.width(12.dp))
+                        Spacer(Modifier.width(10.dp))
                     }
                     val meta = buildList {
                         (detail?.year ?: card.year)?.let { add("$it") }
                         detail?.genres?.take(2)?.takeIf { it.isNotEmpty() }
-                            ?.let { add(it.joinToString(" ")) }
+                            ?.let { add(it.joinToString("/")) }
                         if (isEmpty()) card.subtitle?.let { add(it) }
                     }.joinToString("  ")
                     if (meta.isNotBlank()) {
@@ -205,6 +224,16 @@ fun DailyHero(
                             overflow = TextOverflow.Ellipsis,
                         )
                     }
+                    detail?.officialRating?.takeIf { it.isNotBlank() }?.let { rating ->
+                        Spacer(Modifier.width(8.dp))
+                        Box(
+                            Modifier
+                                .border(1.dp, RainPlayerTextDim.copy(alpha = 0.55f), RoundedCornerShape(4.dp))
+                                .padding(horizontal = 5.dp, vertical = 1.dp)
+                        ) {
+                            Text(rating, color = RainPlayerTextDim, fontSize = 9.sp)
+                        }
+                    }
                 }
 
                 (detail?.overview ?: card.subtitle)?.takeIf { it.isNotBlank() }?.let {
@@ -215,13 +244,14 @@ fun DailyHero(
                         lineHeight = 18.sp,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.padding(start = 4.dp, end = 4.dp, top = 8.dp),
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth().padding(start = 24.dp, end = 24.dp, top = 8.dp),
                     )
                 }
             }
         }
 
-        // 分页点：居中，和参考稿一致
+        // 分页点：居中
         if (items.size > 1) {
             Row(
                 Modifier.fillMaxWidth().padding(top = 10.dp),
@@ -236,8 +266,8 @@ fun DailyHero(
                             .size(if (selected) 6.dp else 5.dp)
                             .clip(CircleShape)
                             .background(
-                                if (selected) RainPlayerText.copy(alpha = 0.8f)
-                                else RainPlayerTextDim.copy(alpha = 0.3f)
+                                if (selected) p.text.copy(alpha = 0.8f)
+                                else p.textDim.copy(alpha = 0.3f)
                             )
                             .clickable { scope.launch { pagerState.animateScrollToPage(index) } }
                     )

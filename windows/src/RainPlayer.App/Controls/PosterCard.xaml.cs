@@ -45,7 +45,7 @@ public partial class PosterCard : UserControl
 
         if (card.Type == MediaType.Series && card.EpisodeCount is > 0)
         {
-            EpisodeBadgeText.Text = $"{card.EpisodeCount} 集";
+            EpisodeBadgeText.Text = $"{card.EpisodeCount}";
             EpisodeBadge.Visibility = Visibility.Visible;
         }
         else

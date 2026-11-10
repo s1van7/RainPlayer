@@ -209,24 +209,28 @@ fun PosterCard(
                     count = count,
                 )
             }
-            // 右下角评分
+            // 右下角评分：毛玻璃胶囊，字号比集数再小一档
             card.rating?.takeIf { it > 0 }?.let { score ->
                 Row(
                     Modifier
                         .align(Alignment.BottomEnd)
                         .padding(7.dp)
                         .clip(RoundedCornerShape(6.dp))
-                        .background(RainPlayerSurface.copy(alpha = 0.92f))
-                        .border(1.dp, RainPlayerAccent.copy(alpha = 0.28f), RoundedCornerShape(6.dp))
-                        .padding(horizontal = 6.dp, vertical = 2.dp),
+                        .background(
+                            Brush.verticalGradient(
+                                listOf(Color(0x59FFFFFF), Color(0x2BFFFFFF))
+                            )
+                        )
+                        .border(1.dp, Color(0x66FFFFFF), RoundedCornerShape(6.dp))
+                        .padding(horizontal = 5.dp, vertical = 1.5.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text("★", color = RainPlayerGold, fontSize = 9.sp)
+                    Text("★", color = RainPlayerGold, fontSize = 7.5.sp)
                     Spacer(Modifier.width(2.dp))
                     Text(
                         "%.1f".format(score),
-                        color = if (score >= 8.5f) RainPlayerAccent else RainPlayerText,
-                        fontSize = 9.5.sp,
+                        color = Color.White,
+                        fontSize = 8.5.sp,
                         fontWeight = FontWeight.SemiBold,
                     )
                 }
@@ -449,9 +453,9 @@ fun IconTextRow(text: String, modifier: Modifier = Modifier) {
 /** 封面上的小角标：浅底 + 主题色字，比纯黑底更贴合浅色主题。 */
 @Composable
 /**
- * 集数角标：正圆。
+ * 集数角标：正圆毛玻璃。
  *
- * 白色（深色主题下为深色面板）底 + 主题色描边 + 主题色数字，
+ * 半透明白 + 竖向高光 + 亮边，透出底下的封面；
  * 三位数自动缩字号，圆本身不变形。
  */
 private fun CountBadge(
@@ -463,17 +467,19 @@ private fun CountBadge(
         modifier
             .size(d)
             .clip(CircleShape)
-            .background(RainPlayerSurface.copy(alpha = 0.94f))
-            .border(1.dp, RainPlayerAccent.copy(alpha = 0.32f), CircleShape),
+            .background(
+                Brush.verticalGradient(listOf(Color(0x59FFFFFF), Color(0x26FFFFFF)))
+            )
+            .border(1.dp, Color(0x73FFFFFF), CircleShape),
         contentAlignment = Alignment.Center,
     ) {
         Text(
             "$count",
-            color = RainPlayerAccent,
+            color = Color.White,
             fontSize = when {
-                count >= 1000 -> 8.5.sp
-                count >= 100 -> 9.5.sp
-                else -> 10.5.sp
+                count >= 1000 -> 8.sp
+                count >= 100 -> 9.sp
+                else -> 10.sp
             },
             fontWeight = FontWeight.SemiBold,
             maxLines = 1,

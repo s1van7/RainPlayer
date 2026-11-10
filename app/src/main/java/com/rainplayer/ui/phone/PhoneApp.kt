@@ -400,12 +400,12 @@ private fun HomeScreen(
     // 有大图时标题栏浮在图上；否则让出 60dp 给标题栏，内容从它下面开始
     val showHero = ok != null && rows.isNotEmpty() && Graph.prefs.dailyRecommend && daily.isNotEmpty()
 
-    // 状态栏高度：大图从状态栏下沿开始，四角圆角完整露出来（和参考录屏一致）
+    // 状态栏高度：没有大图时用它给内容让位
     val statusTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
 
-    // 状态栏区域铺的是页面底色（主色薄染），图标跟随主题明暗即可，不压在图上也就不用强制白色
-    DisposableEffect(Unit) {
-        com.rainplayer.ui.theme.SystemBarsState.overImage = false
+    // 大图顶到屏幕最上沿，状态栏图标压在画面上，换成白色
+    DisposableEffect(showHero) {
+        com.rainplayer.ui.theme.SystemBarsState.overImage = showHero
         onDispose { com.rainplayer.ui.theme.SystemBarsState.overImage = false }
     }
 
@@ -435,8 +435,8 @@ private fun HomeScreen(
                         state = listState,
                         modifier = Modifier.fillMaxSize(),
                         contentPadding = PaddingValues(
-                            // 大图从状态栏下沿 +6dp 开始；无大图时给标题栏让位
-                            top = if (showHero) statusTop + 6.dp else statusTop + 56.dp,
+                            // 大图从屏幕最上沿开始（满屏），无大图时给标题栏让位
+                            top = if (showHero) 0.dp else statusTop + 56.dp,
                             // 底部留白给悬浮导航栏让位，避免最后一行被盖住
                             bottom = 110.dp,
                         ),
@@ -564,11 +564,18 @@ private fun HomeHeader(
                 Modifier
                     .clip(RoundedCornerShape(percent = 50))
                     .background(
-                        if (onImage) Color(0xF0FFFFFF) else Color.Transparent
+                        // 毛玻璃：半透明白 + 竖向高光，透出底下的画面
+                        if (onImage) {
+                            Brush.verticalGradient(
+                                listOf(Color(0x80FFFFFF), Color(0x4DFFFFFF))
+                            )
+                        } else {
+                            Brush.verticalGradient(listOf(Color.Transparent, Color.Transparent))
+                        }
                     )
                     .border(
                         width = if (onImage) 1.dp else 0.dp,
-                        color = if (onImage) Color(0x33FFFFFF) else Color.Transparent,
+                        color = if (onImage) Color(0x73FFFFFF) else Color.Transparent,
                         shape = RoundedCornerShape(percent = 50),
                     )
                     .clickable { onMenuOpenChange(true) }
@@ -636,10 +643,18 @@ private fun HomeHeader(
             Modifier
                 .size(38.dp)
                 .clip(CircleShape)
-                .background(if (onImage) Color(0xF0FFFFFF) else Color.Transparent)
+                .background(
+                    if (onImage) {
+                        Brush.verticalGradient(
+                            listOf(Color(0x80FFFFFF), Color(0x4DFFFFFF))
+                        )
+                    } else {
+                        Brush.verticalGradient(listOf(Color.Transparent, Color.Transparent))
+                    }
+                )
                 .border(
                     width = if (onImage) 1.dp else 0.dp,
-                    color = if (onImage) Color(0x33FFFFFF) else Color.Transparent,
+                    color = if (onImage) Color(0x73FFFFFF) else Color.Transparent,
                     shape = CircleShape,
                 )
                 .clickable { onRefresh() },
